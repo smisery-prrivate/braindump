@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d9488">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Braindump</title>
+<style>
+  :root {
+    --bg: #faf7f2;
+    --ink: #1e293b;
+    --muted: #94a3b8;
+    --teal: #0d9488;
+    --teal-dark: #0f766e;
+    --card-light: #fdf6e3;
+    --card-light-border: #f0e0b8;
+    --card-dark: #1e293b;
+    --danger: #b91c1c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  #app {
+    width: 100%;
+    max-width: 480px;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: max(env(safe-area-inset-top), 16px) 16px calc(env(safe-area-inset-bottom) + 16px);
+  }
+  .screen { display: none; flex-direction: column; flex: 1; }
+  .screen.active { display: flex; }
+
+  /* ---------- Main screen ---------- */
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 8px 4px 16px;
+  }
+  header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+  #count { font-size: 13px; color: var(--muted); }
+
+  .inputrow {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    background: #fff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 10px 10px 10px 16px;
+    box-shadow: 0 2px 8px rgba(30,41,59,0.05);
+  }
+  .inputrow:focus-within { border-color: var(--teal); }
+  #dumpInput {
+    flex: 1;
+    border: none;
+    outline: none;
+    resize: none;
+    font: inherit;
+    font-size: 17px;
+    line-height: 1.35;
+    max-height: 120px;
+    background: transparent;
+    color: var(--ink);
+  }
+  .iconbtn {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    cursor: pointer;
+    transition: background .15s, transform .1s;
+  }
+  .iconbtn:active { transform: scale(0.92); }
+  #micBtn { background: #f1f5f9; color: #475569; }
+  #micBtn.listening {
+    background: var(--danger);
+    color: #fff;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(185,28,28,0.45); }
+    50% { box-shadow: 0 0 0 12px rgba(185,28,28,0); }
+  }
+  #sendBtn { background: #e2e8f0; color: #94a3b8; }
+  #sendBtn.ready { background: var(--teal); color: #fff; }
+
+  #dumpFlash {
+    text-align: center;
+    font-size: 13px;
+    color: var(--teal-dark);
+    height: 20px;
+    margin-top: 8px;
+    opacity: 0;
+    transition: opacity .3s;
+  }
+  #dumpFlash.show { opacity: 1; }
+
+  .fivehead {
+    margin: 26px 4px 10px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .fivehead h2 { font-size: 15px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; }
+  .fivehead span { font-size: 12px; color: var(--muted); }
+
+  .card {
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    font-size: 16px;
+    line-height: 1.4;
+    word-break: break-word;
+    user-select: none;
+  }
+  .card.dark {
+    background: var(--card-dark);
+    color: #f8fafc;
+    font-weight: 600;
+    box-shadow: 0 6px 16px rgba(30,41,59,0.35);
+  }
+  .card.light {
+    background: var(--card-light);
+    border: 1px solid var(--card-light-border);
+    color: #57534e;
+    box-shadow: 0 1px 3px rgba(30,41,59,0.06);
+  }
+  #fiveEmpty {
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+    padding: 24px 12px;
+    line-height: 1.5;
+  }
+
+  .mainfooter { margin-top: auto; padding-top: 24px; text-align: center; }
+  #openArchiveBtn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 14px;
+    padding: 12px;
+    cursor: pointer;
+  }
+  .version { font-size: 11px; color: #cbd5e1; margin-top: 4px; }
+
+  /* ---------- Lock screen ---------- */
+  #lockScreen { align-items: center; justify-content: center; text-align: center; }
+  #lockScreen .lockicon { font-size: 44px; margin-bottom: 16px; }
+  #lockScreen p { color: #475569; margin-bottom: 20px; font-size: 15px; }
+  #pwInput {
+    font-size: 24px;
+    letter-spacing: 0.4em;
+    text-align: center;
+    width: 180px;
+    padding: 10px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    outline: none;
+    background: #fff;
+  }
+  #pwInput.wrong { border-color: var(--danger); animation: shake .4s; }
+  #lockScreen .back { margin-top: 28px; }
+
+  /* ---------- Archive screen ---------- */
+  #archiveScreen header h1 { font-size: 18px; }
+  #archList { flex: 1; overflow-y: auto; padding-bottom: 12px; }
+  .arch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 14px;
+    padding: 13px 15px;
+    margin-bottom: 8px;
+    font-size: 15px;
+    line-height: 1.35;
+    background: #fff;
+    border: 1px solid #eee8dd;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: opacity .4s, background .15s;
+  }
+  .arch .txt { flex: 1; word-break: break-word; }
+  .arch .age { flex: none; font-size: 11px; color: var(--muted); text-align: right; white-space: nowrap; }
+  .arch.light { background: var(--card-light); border-color: var(--card-light-border); }
+  .arch.dark {
+    background: var(--card-dark);
+    border-color: var(--card-dark);
+    color: #f8fafc;
+    font-weight: 600;
+    box-shadow: 0 5px 14px rgba(30,41,59,0.3);
+  }
+  .arch.dark .age { color: #94a3b8; }
+  .arch.blocked { animation: shake .4s; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20%,60% { transform: translateX(-7px); }
+    40%,80% { transform: translateX(7px); }
+  }
+  #limitMsg {
+    text-align: center;
+    font-size: 13px;
+    color: var(--danger);
+    height: 18px;
+    margin-bottom: 6px;
+    opacity: 0;
+    transition: opacity .3s;
+  }
+  #limitMsg.show { opacity: 1; }
+  #archEmpty { color: var(--muted); text-align: center; padding: 40px 12px; font-size: 14px; }
+
+  .testpanel {
+    border-top: 1px dashed #e2e8f0;
+    padding-top: 10px;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .testpanel button {
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 12px;
+    color: #475569;
+    cursor: pointer;
+  }
+  #lostFlash { color: var(--teal-dark); font-size: 12px; }
+
+  .bigbtn {
+    width: 100%;
+    border: none;
+    border-radius: 14px;
+    padding: 15px;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--ink);
+    color: #fff;
+    margin-top: 10px;
+  }
+  .ghost {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    font: inherit;
+    font-size: 14px;
+    padding: 10px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Main: dump + my five -->
+  <section id="mainScreen" class="screen active">
+    <header>
+      <h1>Braindump</h1>
+      <span id="count"></span>
+    </header>
+    <div class="inputrow">
+      <textarea id="dumpInput" rows="1" placeholder="Was ist im Kopf?"></textarea>
+      <button id="micBtn" class="iconbtn" title="Sprechen">🎤</button>
+      <button id="sendBtn" class="iconbtn" title="Senden">➤</button>
+    </div>
+    <div id="dumpFlash">Im Archiv. Weg damit.</div>
+
+    <div class="fivehead">
+      <h2>Meine Fünf</h2>
+      <span id="fiveCount"></span>
+    </div>
+    <div id="fiveList"></div>
+    <div id="fiveEmpty" hidden>Noch nichts priorisiert.<br>Öffne das Archiv, um bis zu fünf Dinge zu wählen.</div>
+
+    <div class="mainfooter">
+      <button id="openArchiveBtn">🔒 Archiv öffnen &amp; ändern</button>
+      <div class="version">v1</div>
+    </div>
+  </section>
+
+  <!-- Lock -->
+  <section id="lockScreen" class="screen">
+    <div class="lockicon">🔒</div>
+    <p>Das Archiv kostet Aufwand.<br>Das ist Absicht.</p>
+    <input id="pwInput" type="password" inputmode="numeric" autocomplete="off" placeholder="••••">
+    <button class="ghost back" id="lockBackBtn">Zurück</button>
+  </section>
+
+  <!-- Archive -->
+  <section id="archiveScreen" class="screen">
+    <header>
+      <h1>Archiv</h1>
+      <span id="archCount"></span>
+    </header>
+    <div id="limitMsg">Fünf sind fünf. Erst eins wegnehmen.</div>
+    <div id="archList"></div>
+    <div id="archEmpty" hidden>Leer. Geh dumpen.</div>
+    <div class="testpanel">
+      <span>Zeitraffer (Test):</span>
+      <button data-days="7">+7 T</button>
+      <button data-days="30">+30 T</button>
+      <button data-days="0">Reset</button>
+      <span id="lostFlash"></span>
+    </div>
+    <button class="bigbtn" id="closeBtn">Schloss zu</button>
+  </section>
+
+</div>
+<script>
+(() => {
+  'use strict';
+  const DAY = 86400000;
+  const EXPIRE_DAYS = 30;
+  const FRESH_DAYS = 2;
+  const MAX_MARKS = 5;
+  const PASSWORD = '1234';
+  const STORE_KEY = 'braindump.v1';
+
+  // ---------- state ----------
+  let items = [];          // {id, text, created, priority: null|'light'|'dark'}
+  let testOffset = 0;      // ms, simulation only — never deletes data
+  const $ = id => document.getElementById(id);
+
+  function load() {
+    try { items = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); }
+    catch (e) { items = []; }
+    // Real purge: only real time, only unprioritized.
+    const now = Date.now();
+    items = items.filter(it => it.priority || (now - it.created) < EXPIRE_DAYS * DAY);
+    save();
+  }
+  function save() { localStorage.setItem(STORE_KEY, JSON.stringify(items)); }
+  const simNow = () => Date.now() + testOffset;
+  const age = it => simNow() - it.created;
+  const expired = it => !it.priority && age(it) >= EXPIRE_DAYS * DAY;
+  const marks = () => items.filter(it => it.priority).length;
+
+  function fadeOpacity(it) {
+    if (it.priority) return 1;
+    const d = age(it) / DAY;
+    if (d < FRESH_DAYS) return 1;
+    const t = (d - FRESH_DAYS) / (EXPIRE_DAYS - FRESH_DAYS);
+    return Math.max(0.12, 1 - 0.88 * t);
+  }
+  function ageLabel(it) {
+    const d = Math.floor(age(it) / DAY);
+    const left = EXPIRE_DAYS - d;
+    if (it.priority) return d === 0 ? 'heute' : `vor ${d} T`;
+    if (left <= 5) return `läuft in ${Math.max(left, 0)} T ab`;
+    return d === 0 ? 'heute' : `vor ${d} T`;
+  }
+
+  // ---------- screens ----------
+  function show(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    $(id).classList.add('active');
+  }
+
+  // ---------- main screen ----------
+  function renderMain() {
+    $('count').textContent = items.length ? `${items.length} im Archiv` : '';
+    const five = items.filter(it => it.priority)
+      .sort((a, b) => (a.priority === b.priority) ? b.created - a.created : (a.priority === 'dark' ? -1 : 1));
+    const list = $('fiveList');
+    list.innerHTML = '';
+    for (const it of five) {
+      const el = document.createElement('div');
+      el.className = 'card ' + it.priority;
+      el.textContent = it.text;
+      list.appendChild(el);
+    }
+    $('fiveEmpty').hidden = five.length > 0;
+    $('fiveCount').textContent = five.length ? `${five.length} / ${MAX_MARKS}` : '';
+  }
+
+  const input = $('dumpInput');
+  const sendBtn = $('sendBtn');
+  input.addEventListener('input', () => {
+    sendBtn.classList.toggle('ready', input.value.trim().length > 0);
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); dump(); }
+  });
+  sendBtn.addEventListener('click', dump);
+
+  let flashTimer;
+  function dump() {
+    const text = input.value.trim();
+    if (!text) return;
+    items.unshift({ id: Date.now() + '' + Math.random().toString(36).slice(2, 6), text, created: Date.now(), priority: null });
+    save();
+    input.value = '';
+    input.style.height = 'auto';
+    sendBtn.classList.remove('ready');
+    renderMain();
+    const f = $('dumpFlash');
+    f.classList.add('show');
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => f.classList.remove('show'), 1400);
+  }
+
+  // ---------- voice ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = $('micBtn');
+  if (!SR) {
+    micBtn.style.display = 'none';
+  } else {
+    let rec = null, listening = false, baseText = '';
+    micBtn.addEventListener('click', () => {
+      if (listening) { rec.stop(); return; }
+      rec = new SR();
+      rec.lang = 'de-DE';
+      rec.interimResults = true;
+      rec.continuous = false;
+      baseText = input.value ? input.value.trim() + ' ' : '';
+      rec.onstart = () => { listening = true; micBtn.classList.add('listening'); };
+      rec.onresult = e => {
+        let txt = '';
+        for (const r of e.results) txt += r[0].transcript;
+        input.value = baseText + txt;
+        input.dispatchEvent(new Event('input'));
+      };
+      rec.onerror = () => stopUI();
+      rec.onend = () => stopUI();
+      function stopUI() {
+        listening = false;
+        micBtn.classList.remove('listening');
+        input.focus();
+      }
+      try { rec.start(); } catch (e) { /* already running */ }
+    });
+  }
+
+  // ---------- lock ----------
+  $('openArchiveBtn').addEventListener('click', () => {
+    $('pwInput').value = '';
+    show('lockScreen');
+    setTimeout(() => $('pwInput').focus(), 50);
+  });
+  $('lockBackBtn').addEventListener('click', () => show('mainScreen'));
+  $('pwInput').addEventListener('input', e => {
+    const el = e.target;
+    if (el.value === PASSWORD) {
+      el.classList.remove('wrong');
+      renderArchive();
+      show('archiveScreen');
+    } else if (el.value.length >= PASSWORD.length) {
+      el.classList.add('wrong');
+      setTimeout(() => { el.classList.remove('wrong'); el.value = ''; }, 450);
+    }
+  });
+
+  // ---------- archive ----------
+  function renderArchive() {
+    const list = $('archList');
+    list.innerHTML = '';
+    const visible = items.filter(it => !expired(it));
+    for (const it of visible.slice().sort((a, b) => b.created - a.created)) {
+      const el = document.createElement('div');
+      el.className = 'arch' + (it.priority ? ' ' + it.priority : '');
+      el.style.opacity = fadeOpacity(it);
+      el.dataset.id = it.id;
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      txt.textContent = it.text;
+      const ag = document.createElement('div');
+      ag.className = 'age';
+      ag.textContent = ageLabel(it);
+      el.append(txt, ag);
+      attachTap(el, it);
+      list.appendChild(el);
+    }
+    $('archEmpty').hidden = visible.length > 0;
+    $('archCount').textContent = `${marks()} / ${MAX_MARKS} gewählt`;
+  }
+
+  // single tap: toggle light/off · double tap: essential (dark)
+  function attachTap(el, it) {
+    let tapTimer = null;
+    el.addEventListener('click', () => {
+      if (tapTimer) {           // double tap
+        clearTimeout(tapTimer);
+        tapTimer = null;
+        setPriority(it, 'dark', el);
+      } else {
+        tapTimer = setTimeout(() => {
+          tapTimer = null;      // single tap
+          setPriority(it, it.priority ? null : 'light', el);
+        }, 260);
+      }
+    });
+  }
+
+  let limitTimer;
+  function setPriority(it, target, el) {
+    if (target && !it.priority && marks() >= MAX_MARKS) {
+      el.classList.add('blocked');
+      setTimeout(() => el.classList.remove('blocked'), 450);
+      const m = $('limitMsg');
+      m.classList.add('show');
+      clearTimeout(limitTimer);
+      limitTimer = setTimeout(() => m.classList.remove('show'), 1600);
+      return;
+    }
+    if (target === 'dark' && it.priority === 'dark') target = 'light'; // double tap on dark → downgrade
+    it.priority = target;
+    save();
+    renderArchive();
+  }
+
+  // time-lapse tester — simulation only, storage untouched
+  document.querySelectorAll('.testpanel button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = +btn.dataset.days;
+      const before = items.filter(it => !expired(it)).length;
+      testOffset = d === 0 ? 0 : testOffset + d * DAY;
+      const after = items.filter(it => !expired(it)).length;
+      const lost = before - after;
+      $('lostFlash').textContent = d === 0 ? '' : (lost > 0 ? `${lost} losgelassen` : '');
+      renderArchive();
+    });
+  });
+
+  $('closeBtn').addEventListener('click', () => {
+    testOffset = 0;
+    renderMain();
+    show('mainScreen');
+  });
+
+  // ---------- boot ----------
+  load();
+  renderMain();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js');
+  }
+})();
+</script>
+</body>
+</html>

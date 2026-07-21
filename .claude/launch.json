@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "braindump",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8734", "--directory", "C:\\Users\\gross\\Claude_Projects\\Braindump_App"],
+      "port": 8734
+    }
+  ]
+}
