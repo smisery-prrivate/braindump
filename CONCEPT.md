@@ -52,6 +52,13 @@ accidental taps. Deleting from the five frees a slot; goal is minimal storage.
 - Storage answer for Pat: everything lives in localStorage on the device, no server,
   no sync; clearing site data deletes it. Backup/export is a future feature.
 
+## Fade + bulk input (v5, 2026-07-22)
+- Fade changed per Pat: full strength until day 20, then visible fade-out to day 30
+  with "läuft in X T ab" countdown from day 20 (was: subtle fade from day 2).
+- Multiline paste/dump: one thought per line.
+- #import=<urlencoded JSON array> in the URL hash bulk-imports thoughts on load
+  (hash never reaches the server, so thoughts stay private); hash is stripped after.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

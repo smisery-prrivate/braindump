@@ -393,7 +393,7 @@
 
     <div class="mainfooter">
       <button id="openArchiveBtn">🔒 Archiv öffnen &amp; ändern</button>
-      <div class="version">v4</div>
+      <div class="version">v5</div>
     </div>
   </section>
 
@@ -436,7 +436,7 @@
   'use strict';
   const DAY = 86400000;
   const EXPIRE_DAYS = 30;
-  const FRESH_DAYS = 2;
+  const FADE_START_DAYS = 20;
   const MAX_MARKS = 5;
   const GUEST_DAYS = 3;    // temporary overflow slots expire on their own
   const MAX_GUESTS = 3;
@@ -470,18 +470,19 @@
   const guestDaysLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_DAYS * DAY - simNow()) / DAY));
   const guestOpacity = it => Math.max(0.35, 1 - 0.65 * ((simNow() - it.guest) / (GUEST_DAYS * DAY)));
 
+  // full strength until day 20, then a visible fade-out ticking down to day 30
   function fadeOpacity(it) {
     if (it.priority) return 1;
     const d = age(it) / DAY;
-    if (d < FRESH_DAYS) return 1;
-    const t = (d - FRESH_DAYS) / (EXPIRE_DAYS - FRESH_DAYS);
+    if (d < FADE_START_DAYS) return 1;
+    const t = (d - FADE_START_DAYS) / (EXPIRE_DAYS - FADE_START_DAYS);
     return Math.max(0.12, 1 - 0.88 * t);
   }
   function ageLabel(it) {
     const d = Math.floor(age(it) / DAY);
     const left = EXPIRE_DAYS - d;
     if (it.priority) return d === 0 ? 'heute' : `vor ${d} T`;
-    if (left <= 5) return `läuft in ${Math.max(left, 0)} T ab`;
+    if (d >= FADE_START_DAYS) return `läuft in ${Math.max(left, 0)} T ab`;
     return d === 0 ? 'heute' : `vor ${d} T`;
   }
 
@@ -548,19 +549,31 @@
   sendBtn.addEventListener('click', dump);
 
   let flashTimer;
-  function dump() {
-    const text = input.value.trim();
-    if (!text) return;
-    items.unshift({ id: Date.now() + '' + Math.random().toString(36).slice(2, 6), text, created: Date.now(), priority: null });
+  function addThoughts(texts) {
+    const now = Date.now();
+    // reverse so the first line ends up on top
+    texts.slice().reverse().forEach(t => {
+      items.unshift({ id: now + '' + Math.random().toString(36).slice(2, 6), text: t, created: now, priority: null });
+    });
     save();
+  }
+  function flash(msg) {
+    const f = $('dumpFlash');
+    f.textContent = msg;
+    f.classList.add('show');
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => f.classList.remove('show'), 1800);
+  }
+  function dump() {
+    // one thought per line — pasting a list dumps each line separately
+    const lines = input.value.split('\n').map(t => t.trim()).filter(Boolean);
+    if (!lines.length) return;
+    addThoughts(lines);
     input.value = '';
     input.style.height = 'auto';
     sendBtn.classList.remove('ready');
     renderMain();
-    const f = $('dumpFlash');
-    f.classList.add('show');
-    clearTimeout(flashTimer);
-    flashTimer = setTimeout(() => f.classList.remove('show'), 1400);
+    flash(lines.length > 1 ? `${lines.length} Gedanken im Archiv.` : 'Im Archiv. Weg damit.');
   }
 
   // ---------- voice ----------
@@ -759,6 +772,20 @@
 
   // ---------- boot ----------
   load();
+  // #import=<urlencoded JSON array> — hash never reaches the server, thoughts stay private
+  if (location.hash.startsWith('#import=')) {
+    try {
+      const arr = JSON.parse(decodeURIComponent(location.hash.slice(8)));
+      if (Array.isArray(arr)) {
+        const texts = arr.filter(t => typeof t === 'string' && t.trim()).map(t => t.trim());
+        if (texts.length) {
+          addThoughts(texts);
+          setTimeout(() => flash(`${texts.length} Gedanken importiert.`), 300);
+        }
+      }
+    } catch (e) { /* malformed import — ignore */ }
+    history.replaceState(null, '', location.pathname);
+  }
   renderMain();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js');
