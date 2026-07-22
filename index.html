@@ -128,6 +128,57 @@
     line-height: 1.4;
     word-break: break-word;
     user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card .txt { flex: 1; }
+  .donebtn {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    background: transparent;
+    color: inherit;
+    opacity: 0.4;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .donebtn:active { opacity: 1; transform: scale(0.9); }
+  #undoToast {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom) + 20px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: #fff;
+    border-radius: 12px;
+    padding: 11px 16px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    font-size: 14px;
+    box-shadow: 0 8px 24px rgba(30,41,59,0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s;
+    z-index: 10;
+    white-space: nowrap;
+  }
+  #undoToast.show { opacity: 1; pointer-events: auto; }
+  #undoToast button {
+    background: transparent;
+    border: none;
+    color: #5eead4;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
   }
   .card.dark {
     background: var(--card-dark);
@@ -323,9 +374,14 @@
 
     <div class="mainfooter">
       <button id="openArchiveBtn">🔒 Archiv öffnen &amp; ändern</button>
-      <div class="version">v2</div>
+      <div class="version">v3</div>
     </div>
   </section>
+
+  <div id="undoToast">
+    <span>Weg. Erledigt.</span>
+    <button id="undoBtn">Rückgängig</button>
+  </div>
 
   <!-- Lock -->
   <section id="lockScreen" class="screen">
@@ -426,7 +482,10 @@
     for (const it of five) {
       const el = document.createElement('div');
       el.className = 'card ' + it.priority;
-      el.textContent = it.text;
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      txt.textContent = it.text;
+      el.append(txt, doneBtn(it));
       list.appendChild(el);
     }
     $('fiveEmpty').hidden = five.length > 0;
@@ -445,7 +504,7 @@
       const left = document.createElement('div');
       left.className = 'left';
       left.textContent = `noch ${guestDaysLeft(it)} T`;
-      el.append(txt, left);
+      el.append(txt, left, doneBtn(it));
       glist.appendChild(el);
     }
     $('guestHead').hidden = gs.length === 0;
@@ -546,7 +605,7 @@
       const ag = document.createElement('div');
       ag.className = 'age';
       ag.textContent = isGuest(it) ? `Gast · noch ${guestDaysLeft(it)} T` : ageLabel(it);
-      el.append(txt, ag);
+      el.append(txt, ag, doneBtn(it));
       attachTap(el, it);
       list.appendChild(el);
     }
@@ -602,6 +661,46 @@
   }
 
   function commit() { save(); renderArchive(); }
+
+  // ---------- letting go: delete anywhere, no friction, 5s undo ----------
+  let lastDeleted = null, undoTimer;
+  function doneBtn(it) {
+    const b = document.createElement('button');
+    b.className = 'donebtn';
+    b.title = 'Erledigt – löschen';
+    b.textContent = '✓';
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteItem(it);
+    });
+    return b;
+  }
+  function deleteItem(it) {
+    const idx = items.indexOf(it);
+    if (idx < 0) return;
+    items.splice(idx, 1);
+    lastDeleted = { it, idx };
+    save();
+    rerender();
+    const t = $('undoToast');
+    t.classList.add('show');
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => { t.classList.remove('show'); lastDeleted = null; }, 5000);
+  }
+  $('undoBtn').addEventListener('click', () => {
+    if (lastDeleted) {
+      items.splice(Math.min(lastDeleted.idx, items.length), 0, lastDeleted.it);
+      save();
+      lastDeleted = null;
+      rerender();
+    }
+    $('undoToast').classList.remove('show');
+    clearTimeout(undoTimer);
+  });
+  function rerender() {
+    renderMain();
+    if ($('archiveScreen').classList.contains('active')) renderArchive();
+  }
 
   let limitTimer;
   function block(el, msg) {

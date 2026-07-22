@@ -39,6 +39,11 @@ The five stay hard. When they are full, another tap in the archive makes a **gue
 - Decision: individual expiry instead of a complete reset — a shared reset date would
   arbitrarily punish whatever was marked shortly before it.
 
+## Letting go (v3, 2026-07-22)
+Friction only for prioritizing, never for letting go. Every card — in the five, guests,
+and archive — has a ✓ button that deletes instantly, with a 5-second undo toast against
+accidental taps. Deleting from the five frees a slot; goal is minimal storage.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
