@@ -65,6 +65,12 @@ real clock on load) — but Pat couldn't tell, and long-open sessions never refr
 v6: time-lapse test panel removed from the MVP; a real ticker re-purges and re-renders
 every 60s and on visibilitychange, so fading/expiry happen even if the app stays open.
 
+## One-thumb layout (v7, 2026-07-22)
+Input row + send live in a fixed dock at the BOTTOM of the main screen; the mic FAB
+floats directly above it. Flow: thumb taps mic -> speak -> text lands in the field
+below -> correct if needed -> send, all in thumb reach. Archive access moved to a
+pill button in the header (with live count); the five + guests scroll behind the dock.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

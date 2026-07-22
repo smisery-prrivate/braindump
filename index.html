@@ -91,7 +91,7 @@
     position: fixed;
     left: 50%;
     transform: translateX(-50%);
-    bottom: calc(env(safe-area-inset-bottom) + 98px);
+    bottom: calc(env(safe-area-inset-bottom) + 122px);
     width: 84px;
     height: 84px;
     border-radius: 50%;
@@ -124,7 +124,7 @@
     font-size: 13px;
     color: var(--teal-dark);
     height: 20px;
-    margin-top: 8px;
+    margin-bottom: 4px;
     opacity: 0;
     transition: opacity .3s;
   }
@@ -171,7 +171,7 @@
   .donebtn:active { opacity: 1; transform: scale(0.9); }
   #undoToast {
     position: fixed;
-    bottom: calc(env(safe-area-inset-bottom) + 20px);
+    bottom: calc(env(safe-area-inset-bottom) + 116px);
     left: 50%;
     transform: translateX(-50%);
     background: var(--ink);
@@ -237,17 +237,29 @@
     line-height: 1.5;
   }
 
-  .mainfooter { margin-top: auto; padding-top: 130px; text-align: center; }
   #openArchiveBtn {
-    border: none;
-    background: transparent;
-    color: var(--muted);
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #475569;
     font: inherit;
-    font-size: 14px;
-    padding: 12px;
+    font-size: 13px;
+    padding: 9px 14px;
+    border-radius: 999px;
     cursor: pointer;
   }
-  .version { font-size: 11px; color: #cbd5e1; margin-top: 4px; }
+  .version { font-size: 11px; color: #cbd5e1; }
+  #mainScreen { padding-bottom: 235px; }
+  .dock {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 0;
+    width: 100%;
+    max-width: 480px;
+    background: var(--bg);
+    padding: 6px 16px calc(env(safe-area-inset-bottom) + 12px);
+    z-index: 4;
+  }
 
   /* ---------- Lock screen ---------- */
   #lockScreen { align-items: center; justify-content: center; text-align: center; }
@@ -344,18 +356,15 @@
 <body>
 <div id="app">
 
-  <!-- Main: dump + my five -->
+  <!-- Main: my five on top, thumb dock at the bottom -->
   <section id="mainScreen" class="screen active">
     <header>
-      <h1>Braindump</h1>
-      <span id="count"></span>
+      <div>
+        <h1>Braindump</h1>
+        <div class="version">v7</div>
+      </div>
+      <button id="openArchiveBtn">🔒 <span id="count">Archiv</span></button>
     </header>
-    <div class="inputrow">
-      <textarea id="dumpInput" rows="1" placeholder="Was ist im Kopf?"></textarea>
-      <button id="sendBtn" class="iconbtn" title="Senden">➤</button>
-    </div>
-    <button id="micBtn" title="Sprechen">🎤</button>
-    <div id="dumpFlash">Im Archiv. Weg damit.</div>
 
     <div class="fivehead">
       <h2>Meine Fünf</h2>
@@ -370,10 +379,14 @@
     </div>
     <div id="guestList"></div>
 
-    <div class="mainfooter">
-      <button id="openArchiveBtn">🔒 Archiv öffnen &amp; ändern</button>
-      <div class="version">v6</div>
+    <div class="dock">
+      <div id="dumpFlash">Im Archiv. Weg damit.</div>
+      <div class="inputrow">
+        <textarea id="dumpInput" rows="1" placeholder="Was ist im Kopf?"></textarea>
+        <button id="sendBtn" class="iconbtn" title="Senden">➤</button>
+      </div>
     </div>
+    <button id="micBtn" title="Sprechen">🎤</button>
   </section>
 
   <div id="undoToast">
@@ -471,7 +484,7 @@
 
   // ---------- main screen ----------
   function renderMain() {
-    $('count').textContent = items.length ? `${items.length} im Archiv` : '';
+    $('count').textContent = items.length ? `${items.length} im Archiv` : 'Archiv';
     const five = items.filter(it => it.priority)
       .sort((a, b) => (a.priority === b.priority) ? b.created - a.created : (a.priority === 'dark' ? -1 : 1));
     const list = $('fiveList');
