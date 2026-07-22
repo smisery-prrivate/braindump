@@ -351,6 +351,30 @@
     padding: 10px;
     cursor: pointer;
   }
+  #modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(30,41,59,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 20;
+  }
+  #modal[hidden] { display: none; }
+  .modalcard {
+    background: #fff;
+    border-radius: 18px;
+    padding: 22px 20px 14px;
+    max-width: 340px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 18px 48px rgba(30,41,59,0.35);
+  }
+  .modalcard h3 { font-size: 17px; margin-bottom: 8px; }
+  .modalcard p { font-size: 14px; color: #475569; line-height: 1.5; }
+  .modalcard .bigbtn { margin-top: 16px; }
+  .modalcard .ghost { width: 100%; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -361,7 +385,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v8</div>
+        <div class="version">v9</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archiv</span></button>
     </header>
@@ -392,6 +416,15 @@
   <div id="undoToast">
     <span>Weg. Erledigt.</span>
     <button id="undoBtn">Rückgängig</button>
+  </div>
+
+  <div id="modal" hidden>
+    <div class="modalcard">
+      <h3 id="modalTitle"></h3>
+      <p id="modalText"></p>
+      <button id="modalOk" class="bigbtn"></button>
+      <button id="modalCancel" class="ghost">Abbrechen</button>
+    </div>
   </div>
 
   <!-- Lock -->
@@ -681,11 +714,33 @@
 
   // a thought gets exactly one guest life — afterwards: into the five, or dump it anew
   function tryGuest(it, el) {
-    if (it.guestUsed) { block(el, 'War schon Gast. In die Fünf – oder neu dumpen.'); return; }
-    if (guests().length >= MAX_GUESTS) { block(el, `Mehr als ${MAX_GUESTS} Gäste gibt es nicht.`); return; }
-    it.guest = simNow();
-    it.guestUsed = true;
-    commit();
+    if (it.guestUsed) {
+      showModal('Fünf sind fünf.',
+        'Dieser Gedanke war schon einmal Gast. Jetzt gibt es nur noch: in die Fünf holen (erst eins wegnehmen) oder neu dumpen.',
+        'Verstanden', null);
+      return;
+    }
+    if (guests().length >= MAX_GUESTS) {
+      showModal('Alles voll.',
+        `Die Fünf sind voll und alle ${MAX_GUESTS} Gastplätze belegt. Erst etwas loslassen.`,
+        'Verstanden', null);
+      return;
+    }
+    showModal('Fünf sind fünf.',
+      `Als Gast dazu? Ein Gast verfällt nach ${GUEST_DAYS} Tagen von selbst und lässt sich nicht verlängern.`,
+      'Als Gast dazu',
+      () => { it.guest = Date.now(); it.guestUsed = true; commit(); });
+  }
+
+  function showModal(title, text, okLabel, onOk) {
+    $('modalTitle').textContent = title;
+    $('modalText').textContent = text;
+    const ok = $('modalOk');
+    ok.textContent = okLabel;
+    $('modalCancel').hidden = !onOk;
+    $('modal').hidden = false;
+    ok.onclick = () => { $('modal').hidden = true; if (onOk) onOk(); };
+    $('modalCancel').onclick = () => { $('modal').hidden = true; };
   }
 
   function commit() { save(); renderArchive(); }

@@ -71,6 +71,13 @@ floats directly above it. Flow: thumb taps mic -> speak -> text lands in the fie
 below -> correct if needed -> send, all in thumb reach. Archive access moved to a
 pill button in the header (with live count); the five + guests scroll behind the dock.
 
+## Guest popup + bugfix (v9, 2026-07-22)
+Regression: v6's cleanup removed simNow() but tryGuest still called it — every guest
+attempt died silently since v6 (Pat noticed: "Gäste kommen nicht mehr"). Fixed.
+New per Pat: tapping an item while the five are full now opens an explicit popup —
+"Als Gast dazu?" with confirm/cancel; one-shot-guest and all-full cases get an
+info popup instead of the old shake-only feedback.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
