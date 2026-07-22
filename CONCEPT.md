@@ -44,6 +44,14 @@ Friction only for prioritizing, never for letting go. Every card — in the five
 and archive — has a ✓ button that deletes instantly, with a 5-second undo toast against
 accidental taps. Deleting from the five frees a slot; goal is minimal storage.
 
+## Direct access (v4, 2026-07-22)
+- Big floating mic button (84px, teal FAB) bottom-center on the main view — voice is
+  the primary input. Red pulse while listening.
+- Tapping a card in "My Five" flips its weight (light <-> dark) without the archive
+  ritual. The ritual still guards *selection* (adding/removing); shading is free.
+- Storage answer for Pat: everything lives in localStorage on the device, no server,
+  no sync; clearing site data deletes it. Backup/export is a future feature.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

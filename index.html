@@ -87,15 +87,34 @@
     transition: background .15s, transform .1s;
   }
   .iconbtn:active { transform: scale(0.92); }
-  #micBtn { background: #f1f5f9; color: #475569; }
+  #micBtn {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom) + 98px);
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    border: none;
+    background: var(--teal);
+    color: #fff;
+    font-size: 38px;
+    cursor: pointer;
+    box-shadow: 0 10px 28px rgba(13,148,136,0.45);
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #micBtn:active { transform: translateX(-50%) scale(0.93); }
   #micBtn.listening {
     background: var(--danger);
-    color: #fff;
+    box-shadow: 0 10px 28px rgba(185,28,28,0.45);
     animation: pulse 1.2s ease-in-out infinite;
   }
   @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(185,28,28,0.45); }
-    50% { box-shadow: 0 0 0 12px rgba(185,28,28,0); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(185,28,28,0.5), 0 10px 28px rgba(185,28,28,0.45); }
+    50% { box-shadow: 0 0 0 22px rgba(185,28,28,0), 0 10px 28px rgba(185,28,28,0.45); }
   }
   #sendBtn { background: #e2e8f0; color: #94a3b8; }
   #sendBtn.ready { background: var(--teal); color: #fff; }
@@ -218,7 +237,7 @@
     line-height: 1.5;
   }
 
-  .mainfooter { margin-top: auto; padding-top: 24px; text-align: center; }
+  .mainfooter { margin-top: auto; padding-top: 130px; text-align: center; }
   #openArchiveBtn {
     border: none;
     background: transparent;
@@ -354,9 +373,9 @@
     </header>
     <div class="inputrow">
       <textarea id="dumpInput" rows="1" placeholder="Was ist im Kopf?"></textarea>
-      <button id="micBtn" class="iconbtn" title="Sprechen">🎤</button>
       <button id="sendBtn" class="iconbtn" title="Senden">➤</button>
     </div>
+    <button id="micBtn" title="Sprechen">🎤</button>
     <div id="dumpFlash">Im Archiv. Weg damit.</div>
 
     <div class="fivehead">
@@ -374,7 +393,7 @@
 
     <div class="mainfooter">
       <button id="openArchiveBtn">🔒 Archiv öffnen &amp; ändern</button>
-      <div class="version">v3</div>
+      <div class="version">v4</div>
     </div>
   </section>
 
@@ -486,6 +505,12 @@
       txt.className = 'txt';
       txt.textContent = it.text;
       el.append(txt, doneBtn(it));
+      // tap flips the weight (light <-> dark); removal stays behind the archive ritual or the check
+      el.addEventListener('click', () => {
+        it.priority = it.priority === 'dark' ? 'light' : 'dark';
+        save();
+        renderMain();
+      });
       list.appendChild(el);
     }
     $('fiveEmpty').hidden = five.length > 0;
