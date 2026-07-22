@@ -59,6 +59,12 @@ accidental taps. Deleting from the five frees a slot; goal is minimal storage.
 - #import=<urlencoded JSON array> in the URL hash bulk-imports thoughts on load
   (hash never reaches the server, so thoughts stay private); hash is stripped after.
 
+## Real countdown (v6, 2026-07-22)
+The decay was always real (created-timestamps in localStorage, evaluated against the
+real clock on load) — but Pat couldn't tell, and long-open sessions never refreshed.
+v6: time-lapse test panel removed from the MVP; a real ticker re-purges and re-renders
+every 60s and on visibilitychange, so fading/expiry happen even if the app stays open.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

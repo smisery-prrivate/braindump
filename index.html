@@ -317,27 +317,6 @@
   #limitMsg.show { opacity: 1; }
   #archEmpty { color: var(--muted); text-align: center; padding: 40px 12px; font-size: 14px; }
 
-  .testpanel {
-    border-top: 1px dashed #e2e8f0;
-    padding-top: 10px;
-    margin-top: 6px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .testpanel button {
-    border: 1px solid #e2e8f0;
-    background: #fff;
-    border-radius: 8px;
-    padding: 5px 10px;
-    font-size: 12px;
-    color: #475569;
-    cursor: pointer;
-  }
-  #lostFlash { color: var(--teal-dark); font-size: 12px; }
-
   .bigbtn {
     width: 100%;
     border: none;
@@ -393,7 +372,7 @@
 
     <div class="mainfooter">
       <button id="openArchiveBtn">🔒 Archiv öffnen &amp; ändern</button>
-      <div class="version">v5</div>
+      <div class="version">v6</div>
     </div>
   </section>
 
@@ -419,14 +398,6 @@
     <div id="limitMsg">Fünf sind fünf. Erst eins wegnehmen.</div>
     <div id="archList"></div>
     <div id="archEmpty" hidden>Leer. Geh dumpen.</div>
-    <div class="testpanel">
-      <span>Zeitraffer (Test):</span>
-      <button data-days="1">+1 T</button>
-      <button data-days="7">+7 T</button>
-      <button data-days="30">+30 T</button>
-      <button data-days="0">Reset</button>
-      <span id="lostFlash"></span>
-    </div>
     <button class="bigbtn" id="closeBtn">Schloss zu</button>
   </section>
 
@@ -446,29 +417,35 @@
   // ---------- state ----------
   // {id, text, created, priority: null|'light'|'dark', guest: null|timestamp, guestUsed: bool}
   let items = [];
-  let testOffset = 0;      // ms, simulation only — never deletes data
   const $ = id => document.getElementById(id);
 
+  // Guest status pauses deletion but never resets the clock.
+  function purgeReal() {
+    const now = Date.now();
+    let changed = false;
+    for (const it of items) {
+      if (it.guest && (now - it.guest) >= GUEST_DAYS * DAY) { it.guest = null; changed = true; }
+    }
+    const before = items.length;
+    items = items.filter(it => it.priority || it.guest || (now - it.created) < EXPIRE_DAYS * DAY);
+    if (items.length !== before) changed = true;
+    if (changed) save();
+    return changed;
+  }
   function load() {
     try { items = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); }
     catch (e) { items = []; }
-    // Real purge: only real time. Guest status pauses deletion but never resets the clock.
-    const now = Date.now();
-    for (const it of items) {
-      if (it.guest && (now - it.guest) >= GUEST_DAYS * DAY) it.guest = null;
-    }
-    items = items.filter(it => it.priority || it.guest || (now - it.created) < EXPIRE_DAYS * DAY);
+    purgeReal();
     save();
   }
   function save() { localStorage.setItem(STORE_KEY, JSON.stringify(items)); }
-  const simNow = () => Date.now() + testOffset;
-  const age = it => simNow() - it.created;
-  const isGuest = it => !!it.guest && (simNow() - it.guest) < GUEST_DAYS * DAY;
+  const age = it => Date.now() - it.created;
+  const isGuest = it => !!it.guest && (Date.now() - it.guest) < GUEST_DAYS * DAY;
   const expired = it => !it.priority && !isGuest(it) && age(it) >= EXPIRE_DAYS * DAY;
   const marks = () => items.filter(it => it.priority).length;
   const guests = () => items.filter(isGuest);
-  const guestDaysLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_DAYS * DAY - simNow()) / DAY));
-  const guestOpacity = it => Math.max(0.35, 1 - 0.65 * ((simNow() - it.guest) / (GUEST_DAYS * DAY)));
+  const guestDaysLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_DAYS * DAY - Date.now()) / DAY));
+  const guestOpacity = it => Math.max(0.35, 1 - 0.65 * ((Date.now() - it.guest) / (GUEST_DAYS * DAY)));
 
   // full strength until day 20, then a visible fade-out ticking down to day 30
   function fadeOpacity(it) {
@@ -751,24 +728,20 @@
     limitTimer = setTimeout(() => m.classList.remove('show'), 2000);
   }
 
-  // time-lapse tester — simulation only, storage untouched
-  document.querySelectorAll('.testpanel button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const d = +btn.dataset.days;
-      const before = items.filter(it => !expired(it)).length;
-      testOffset = d === 0 ? 0 : testOffset + d * DAY;
-      const after = items.filter(it => !expired(it)).length;
-      const lost = before - after;
-      $('lostFlash').textContent = d === 0 ? '' : (lost > 0 ? `${lost} losgelassen` : '');
-      renderArchive();
-    });
-  });
-
   $('closeBtn').addEventListener('click', () => {
-    testOffset = 0;
     renderMain();
     show('mainScreen');
   });
+
+  // real countdown: re-check the clock every minute and whenever the app comes back
+  // to the foreground, so long-open sessions still fade and purge for real
+  function tick() {
+    const changed = purgeReal();
+    renderMain();
+    if (changed && $('archiveScreen').classList.contains('active')) renderArchive();
+  }
+  setInterval(tick, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
 
   // ---------- boot ----------
   load();
