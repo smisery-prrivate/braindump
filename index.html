@@ -141,6 +141,24 @@
     color: #57534e;
     box-shadow: 0 1px 3px rgba(30,41,59,0.06);
   }
+  .card.guest {
+    background: #fffbeb;
+    border: 1.5px dashed #f5c56b;
+    color: #92400e;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card.guest .txt { flex: 1; }
+  .card.guest .left { flex: none; font-size: 11px; color: #b45309; white-space: nowrap; }
+  .guesthead {
+    margin: 18px 4px 10px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .guesthead h2 { font-size: 13px; font-weight: 700; color: #b45309; text-transform: uppercase; letter-spacing: 0.06em; }
+  .guesthead span { font-size: 12px; color: var(--muted); }
   #fiveEmpty {
     color: var(--muted);
     font-size: 14px;
@@ -209,6 +227,8 @@
     box-shadow: 0 5px 14px rgba(30,41,59,0.3);
   }
   .arch.dark .age { color: #94a3b8; }
+  .arch.guest { background: #fffbeb; border: 1.5px dashed #f5c56b; color: #92400e; }
+  .arch.guest .age { color: #b45309; }
   .arch.blocked { animation: shake .4s; }
   @keyframes shake {
     0%,100% { transform: translateX(0); }
@@ -295,9 +315,15 @@
     <div id="fiveList"></div>
     <div id="fiveEmpty" hidden>Noch nichts priorisiert.<br>Öffne das Archiv, um bis zu fünf Dinge zu wählen.</div>
 
+    <div class="guesthead" id="guestHead" hidden>
+      <h2>Gäste</h2>
+      <span>verfallen von selbst</span>
+    </div>
+    <div id="guestList"></div>
+
     <div class="mainfooter">
       <button id="openArchiveBtn">🔒 Archiv öffnen &amp; ändern</button>
-      <div class="version">v1</div>
+      <div class="version">v2</div>
     </div>
   </section>
 
@@ -320,6 +346,7 @@
     <div id="archEmpty" hidden>Leer. Geh dumpen.</div>
     <div class="testpanel">
       <span>Zeitraffer (Test):</span>
+      <button data-days="1">+1 T</button>
       <button data-days="7">+7 T</button>
       <button data-days="30">+30 T</button>
       <button data-days="0">Reset</button>
@@ -336,27 +363,37 @@
   const EXPIRE_DAYS = 30;
   const FRESH_DAYS = 2;
   const MAX_MARKS = 5;
+  const GUEST_DAYS = 3;    // temporary overflow slots expire on their own
+  const MAX_GUESTS = 3;
   const PASSWORD = '1234';
   const STORE_KEY = 'braindump.v1';
 
   // ---------- state ----------
-  let items = [];          // {id, text, created, priority: null|'light'|'dark'}
+  // {id, text, created, priority: null|'light'|'dark', guest: null|timestamp, guestUsed: bool}
+  let items = [];
   let testOffset = 0;      // ms, simulation only — never deletes data
   const $ = id => document.getElementById(id);
 
   function load() {
     try { items = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); }
     catch (e) { items = []; }
-    // Real purge: only real time, only unprioritized.
+    // Real purge: only real time. Guest status pauses deletion but never resets the clock.
     const now = Date.now();
-    items = items.filter(it => it.priority || (now - it.created) < EXPIRE_DAYS * DAY);
+    for (const it of items) {
+      if (it.guest && (now - it.guest) >= GUEST_DAYS * DAY) it.guest = null;
+    }
+    items = items.filter(it => it.priority || it.guest || (now - it.created) < EXPIRE_DAYS * DAY);
     save();
   }
   function save() { localStorage.setItem(STORE_KEY, JSON.stringify(items)); }
   const simNow = () => Date.now() + testOffset;
   const age = it => simNow() - it.created;
-  const expired = it => !it.priority && age(it) >= EXPIRE_DAYS * DAY;
+  const isGuest = it => !!it.guest && (simNow() - it.guest) < GUEST_DAYS * DAY;
+  const expired = it => !it.priority && !isGuest(it) && age(it) >= EXPIRE_DAYS * DAY;
   const marks = () => items.filter(it => it.priority).length;
+  const guests = () => items.filter(isGuest);
+  const guestDaysLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_DAYS * DAY - simNow()) / DAY));
+  const guestOpacity = it => Math.max(0.35, 1 - 0.65 * ((simNow() - it.guest) / (GUEST_DAYS * DAY)));
 
   function fadeOpacity(it) {
     if (it.priority) return 1;
@@ -394,6 +431,24 @@
     }
     $('fiveEmpty').hidden = five.length > 0;
     $('fiveCount').textContent = five.length ? `${five.length} / ${MAX_MARKS}` : '';
+
+    const gs = guests().sort((a, b) => a.guest - b.guest);
+    const glist = $('guestList');
+    glist.innerHTML = '';
+    for (const it of gs) {
+      const el = document.createElement('div');
+      el.className = 'card guest';
+      el.style.opacity = guestOpacity(it);
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      txt.textContent = it.text;
+      const left = document.createElement('div');
+      left.className = 'left';
+      left.textContent = `noch ${guestDaysLeft(it)} T`;
+      el.append(txt, left);
+      glist.appendChild(el);
+    }
+    $('guestHead').hidden = gs.length === 0;
   }
 
   const input = $('dumpInput');
@@ -482,55 +537,81 @@
     const visible = items.filter(it => !expired(it));
     for (const it of visible.slice().sort((a, b) => b.created - a.created)) {
       const el = document.createElement('div');
-      el.className = 'arch' + (it.priority ? ' ' + it.priority : '');
-      el.style.opacity = fadeOpacity(it);
+      el.className = 'arch' + (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : ''));
+      el.style.opacity = isGuest(it) ? guestOpacity(it) : fadeOpacity(it);
       el.dataset.id = it.id;
       const txt = document.createElement('div');
       txt.className = 'txt';
       txt.textContent = it.text;
       const ag = document.createElement('div');
       ag.className = 'age';
-      ag.textContent = ageLabel(it);
+      ag.textContent = isGuest(it) ? `Gast · noch ${guestDaysLeft(it)} T` : ageLabel(it);
       el.append(txt, ag);
       attachTap(el, it);
       list.appendChild(el);
     }
     $('archEmpty').hidden = visible.length > 0;
-    $('archCount').textContent = `${marks()} / ${MAX_MARKS} gewählt`;
+    const g = guests().length;
+    $('archCount').textContent = `${marks()} / ${MAX_MARKS} gewählt` + (g ? ` · ${g} Gäste` : '');
   }
 
   // single tap: toggle light/off · double tap: essential (dark)
+  // five full: a tap turns the item into a guest instead (temporary, self-expiring)
   function attachTap(el, it) {
     let tapTimer = null;
     el.addEventListener('click', () => {
       if (tapTimer) {           // double tap
         clearTimeout(tapTimer);
         tapTimer = null;
-        setPriority(it, 'dark', el);
+        doubleTap(it, el);
       } else {
         tapTimer = setTimeout(() => {
           tapTimer = null;      // single tap
-          setPriority(it, it.priority ? null : 'light', el);
+          singleTap(it, el);
         }, 260);
       }
     });
   }
 
-  let limitTimer;
-  function setPriority(it, target, el) {
-    if (target && !it.priority && marks() >= MAX_MARKS) {
-      el.classList.add('blocked');
-      setTimeout(() => el.classList.remove('blocked'), 450);
-      const m = $('limitMsg');
-      m.classList.add('show');
-      clearTimeout(limitTimer);
-      limitTimer = setTimeout(() => m.classList.remove('show'), 1600);
+  function singleTap(it, el) {
+    if (it.priority) { it.priority = null; commit(); return; }
+    if (isGuest(it)) { it.guest = null; commit(); return; }
+    if (marks() < MAX_MARKS) { it.priority = 'light'; commit(); return; }
+    tryGuest(it, el);
+  }
+
+  function doubleTap(it, el) {
+    if (it.priority === 'dark') { it.priority = 'light'; commit(); return; }  // downgrade
+    if (isGuest(it)) {
+      // promote guest into the real five — only if a slot is free
+      if (marks() < MAX_MARKS) { it.guest = null; it.priority = 'dark'; commit(); }
+      else block(el, 'Fünf sind fünf. Erst eins wegnehmen.');
       return;
     }
-    if (target === 'dark' && it.priority === 'dark') target = 'light'; // double tap on dark → downgrade
-    it.priority = target;
-    save();
-    renderArchive();
+    if (it.priority === 'light' || marks() < MAX_MARKS) { it.priority = 'dark'; commit(); return; }
+    tryGuest(it, el);
+  }
+
+  // a thought gets exactly one guest life — afterwards: into the five, or dump it anew
+  function tryGuest(it, el) {
+    if (it.guestUsed) { block(el, 'War schon Gast. In die Fünf – oder neu dumpen.'); return; }
+    if (guests().length >= MAX_GUESTS) { block(el, `Mehr als ${MAX_GUESTS} Gäste gibt es nicht.`); return; }
+    it.guest = simNow();
+    it.guestUsed = true;
+    commit();
+  }
+
+  function commit() { save(); renderArchive(); }
+
+  let limitTimer;
+  function block(el, msg) {
+    el.classList.add('blocked');
+    setTimeout(() => el.classList.remove('blocked'), 450);
+    const m = $('limitMsg');
+    m.textContent = msg;
+    m.classList.add('show');
+    clearTimeout(limitTimer);
+    limitTimer = setTimeout(() => m.classList.remove('show'), 2000);
   }
 
   // time-lapse tester — simulation only, storage untouched

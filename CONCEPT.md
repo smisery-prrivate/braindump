@@ -29,6 +29,16 @@ Everything goes in without judgment; only what passes a ritual comes out.
 - Prioritized items never fade and never expire — selecting = saving.
 - Prototype had a time-lapse tester (+7 / +30 days) to feel the decay.
 
+## Guest slots (v2, 2026-07-22)
+The five stay hard. When they are full, another tap in the archive makes a **guest**:
+- Max 3 guests, amber/dashed look, shown under the five on the main view.
+- Each guest expires individually 3 days after being marked (fades visibly), then falls
+  back into the archive. Guest status pauses the 30-day deletion but never resets it.
+- **One guest life per thought** (guestUsed flag). Afterwards: promote into the real five
+  (double tap, if a slot is free) or dump it anew. Extending is deliberately impossible.
+- Decision: individual expiry instead of a complete reset — a shared reset date would
+  arbitrarily punish whatever was marked shortly before it.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
