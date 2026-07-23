@@ -78,6 +78,19 @@ New per Pat: tapping an item while the five are full now opens an explicit popup
 "Als Gast dazu?" with confirm/cancel; one-shot-guest and all-full cases get an
 info popup instead of the old shake-only feedback.
 
+## Data safety + drag-back (v10, 2026-07-23)
+People besides Pat now use the app.
+- navigator.storage.persist() requested on boot (browser must not evict the data).
+- Automatic second copy in IndexedDB on every save; if localStorage turns up empty
+  on boot, the app silently restores from the mirror ("Aus Sicherung wiederhergestellt").
+- Manual backup: archive screen gets "Backup speichern" (JSON download, dated) and
+  "Laden" (file picker, merges + dedupes by id) with a last-backup hint.
+- Drag-back: every five/guest card has a ⠿ handle; dragging it lifts a clone, a drop
+  zone replaces the dock ("Loslassen: zurück ins Archiv"), dropping demotes the item
+  (priority + guest cleared). Handle taps never flip priority; scrolling stays intact
+  because touch-action:none sits only on the handle.
+- Real cloud sync across devices = post-MVP (needs a server + accounts).
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

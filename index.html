@@ -169,6 +169,61 @@
     justify-content: center;
   }
   .donebtn:active { opacity: 1; transform: scale(0.9); }
+  .draghandle {
+    flex: none;
+    opacity: 0.35;
+    font-size: 15px;
+    padding: 4px 2px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .dragclone {
+    position: fixed;
+    z-index: 20;
+    pointer-events: none;
+    opacity: 0.92;
+    box-shadow: 0 14px 34px rgba(30,41,59,0.35);
+    margin: 0;
+  }
+  #dropZone {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 0;
+    width: 100%;
+    max-width: 480px;
+    padding: 30px 16px calc(env(safe-area-inset-bottom) + 30px);
+    background: var(--bg);
+    border-top: 2px dashed var(--muted);
+    text-align: center;
+    color: #475569;
+    font-size: 15px;
+    font-weight: 600;
+    z-index: 6;
+    display: none;
+  }
+  #dropZone.show { display: block; }
+  #dropZone.hot { background: var(--card-light); border-color: var(--teal); color: var(--teal-dark); }
+  .backuprow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    padding: 8px 2px 0;
+  }
+  .backuprow span { flex: 1; }
+  .backuprow button {
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    border-radius: 8px;
+    padding: 6px 11px;
+    font-size: 12px;
+    color: #475569;
+    cursor: pointer;
+  }
   #undoToast {
     position: fixed;
     bottom: calc(env(safe-area-inset-bottom) + 116px);
@@ -385,7 +440,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v9</div>
+        <div class="version">v10</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archiv</span></button>
     </header>
@@ -411,6 +466,7 @@
       </div>
     </div>
     <button id="micBtn" title="Sprechen">🎤</button>
+    <div id="dropZone">Loslassen: zurück ins Archiv</div>
   </section>
 
   <div id="undoToast">
@@ -444,6 +500,12 @@
     <div id="limitMsg">Fünf sind fünf. Erst eins wegnehmen.</div>
     <div id="archList"></div>
     <div id="archEmpty" hidden>Leer. Geh dumpen.</div>
+    <div class="backuprow">
+      <span id="backupHint"></span>
+      <button id="backupBtn">💾 Backup speichern</button>
+      <button id="restoreBtn">Laden</button>
+      <input id="restoreFile" type="file" accept="application/json,.json" hidden>
+    </div>
     <button class="bigbtn" id="closeBtn">Schloss zu</button>
   </section>
 
@@ -484,7 +546,40 @@
     purgeReal();
     save();
   }
-  function save() { localStorage.setItem(STORE_KEY, JSON.stringify(items)); }
+  function save() {
+    localStorage.setItem(STORE_KEY, JSON.stringify(items));
+    mirror();
+  }
+
+  // ---------- second copy in IndexedDB: auto-restore if localStorage is wiped ----------
+  let idb = null;
+  function mirror() {
+    if (!idb) return;
+    try { idb.transaction('kv', 'readwrite').objectStore('kv').put(JSON.parse(JSON.stringify(items)), 'items'); }
+    catch (e) { /* mirror is best-effort */ }
+  }
+  function openMirror() {
+    if (!window.indexedDB) return;
+    const req = indexedDB.open('brainrelieve', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => {
+      idb = req.result;
+      if (items.length === 0) {
+        const get = idb.transaction('kv').objectStore('kv').get('items');
+        get.onsuccess = () => {
+          if (Array.isArray(get.result) && get.result.length) {
+            items = get.result;
+            purgeReal();
+            localStorage.setItem(STORE_KEY, JSON.stringify(items));
+            renderMain();
+            flash('Aus Sicherung wiederhergestellt.');
+          }
+        };
+      } else {
+        mirror();
+      }
+    };
+  }
   const age = it => Date.now() - it.created;
   const isGuest = it => !!it.guest && (Date.now() - it.guest) < GUEST_DAYS * DAY;
   const expired = it => !it.priority && !isGuest(it) && age(it) >= EXPIRE_DAYS * DAY;
@@ -528,7 +623,7 @@
       const txt = document.createElement('div');
       txt.className = 'txt';
       txt.textContent = it.text;
-      el.append(txt, doneBtn(it));
+      el.append(dragHandle(it), txt, doneBtn(it));
       // tap flips the weight (light <-> dark); removal stays behind the archive ritual or the check
       el.addEventListener('click', () => {
         it.priority = it.priority === 'dark' ? 'light' : 'dark';
@@ -553,7 +648,7 @@
       const left = document.createElement('div');
       left.className = 'left';
       left.textContent = `noch ${guestDaysLeft(it)} T`;
-      el.append(txt, left, doneBtn(it));
+      el.append(dragHandle(it), txt, left, doneBtn(it));
       glist.appendChild(el);
     }
     $('guestHead').hidden = gs.length === 0;
@@ -673,6 +768,7 @@
     $('archEmpty').hidden = visible.length > 0;
     const g = guests().length;
     $('archCount').textContent = `${marks()} / ${MAX_MARKS} gewählt` + (g ? ` · ${g} Gäste` : '');
+    renderBackupHint();
   }
 
   // single tap: toggle light/off · double tap: essential (dark)
@@ -745,6 +841,53 @@
 
   function commit() { save(); renderArchive(); }
 
+  // ---------- backup to file + restore ----------
+  const BACKUP_KEY = 'braindump.lastBackup';
+  function renderBackupHint() {
+    const t = +localStorage.getItem(BACKUP_KEY) || 0;
+    $('backupHint').textContent = t
+      ? 'Letztes Backup: ' + (Math.floor((Date.now() - t) / DAY) === 0 ? 'heute' : 'vor ' + Math.floor((Date.now() - t) / DAY) + ' T')
+      : 'Noch kein Backup.';
+  }
+  $('backupBtn').addEventListener('click', () => {
+    const blob = new Blob(
+      [JSON.stringify({ app: 'Brain Relieve', exported: new Date().toISOString(), items }, null, 2)],
+      { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'brain-relieve-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    localStorage.setItem(BACKUP_KEY, Date.now() + '');
+    renderBackupHint();
+  });
+  $('restoreBtn').addEventListener('click', () => $('restoreFile').click());
+  $('restoreFile').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    file.text().then(t => {
+      const data = JSON.parse(t);
+      const arr = Array.isArray(data) ? data : data.items;
+      if (!Array.isArray(arr)) throw new Error('kein Array');
+      const known = new Set(items.map(i => i.id));
+      let n = 0;
+      for (const it of arr) {
+        if (it && it.id && typeof it.text === 'string' && !known.has(it.id)) {
+          items.push({ id: it.id, text: it.text, created: +it.created || Date.now(),
+            priority: it.priority === 'dark' || it.priority === 'light' ? it.priority : null,
+            guest: +it.guest || null, guestUsed: !!it.guestUsed });
+          n++;
+        }
+      }
+      purgeReal();
+      save();
+      renderMain();
+      renderArchive();
+      $('backupHint').textContent = n + ' Gedanken wiederhergestellt.';
+    }).catch(() => { $('backupHint').textContent = 'Datei nicht lesbar.'; });
+  });
+
   // ---------- letting go: delete anywhere, no friction, 5s undo ----------
   let lastDeleted = null, undoTimer;
   function doneBtn(it) {
@@ -785,6 +928,63 @@
     if ($('archiveScreen').classList.contains('active')) renderArchive();
   }
 
+  // ---------- drag a five/guest card back to the archive ----------
+  let drag = null;
+  function dragHandle(it) {
+    const h = document.createElement('div');
+    h.className = 'draghandle';
+    h.textContent = '⠿';
+    h.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      drag = { it, card: h.parentElement, startX: e.clientX, startY: e.clientY, active: false };
+      try { h.setPointerCapture(e.pointerId); } catch (err) { /* synthetic events */ }
+    });
+    h.addEventListener('pointermove', e => {
+      if (!drag) return;
+      if (!drag.active) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 8) return;
+        drag.active = true;
+        const r = drag.card.getBoundingClientRect();
+        drag.clone = drag.card.cloneNode(true);
+        drag.clone.classList.add('dragclone');
+        drag.clone.style.width = r.width + 'px';
+        drag.offsetX = drag.startX - r.left;
+        drag.offsetY = drag.startY - r.top;
+        document.body.appendChild(drag.clone);
+        drag.card.style.opacity = '0.3';
+        $('dropZone').classList.add('show');
+      }
+      drag.clone.style.left = (e.clientX - drag.offsetX) + 'px';
+      drag.clone.style.top = (e.clientY - drag.offsetY) + 'px';
+      const dz = $('dropZone').getBoundingClientRect();
+      $('dropZone').classList.toggle('hot', e.clientY >= dz.top);
+    });
+    const end = e => {
+      if (!drag) return;
+      if (drag.active) {
+        const dz = $('dropZone').getBoundingClientRect();
+        const inZone = e.clientY >= dz.top;
+        drag.clone.remove();
+        drag.card.style.opacity = '';
+        $('dropZone').classList.remove('show');
+        $('dropZone').classList.remove('hot');
+        if (inZone) {
+          drag.it.priority = null;
+          drag.it.guest = null;
+          save();
+          renderMain();
+          flash('Zurück ins Archiv.');
+        }
+      }
+      drag = null;
+    };
+    h.addEventListener('pointerup', end);
+    h.addEventListener('pointercancel', end);
+    // a tap on the handle must never flip the card's priority
+    h.addEventListener('click', e => e.stopPropagation());
+    return h;
+  }
+
   let limitTimer;
   function block(el, msg) {
     el.classList.add('blocked');
@@ -813,6 +1013,8 @@
 
   // ---------- boot ----------
   load();
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+  openMirror();
   // #import=<urlencoded JSON array> — hash never reaches the server, thoughts stay private
   if (location.hash.startsWith('#import=')) {
     try {
