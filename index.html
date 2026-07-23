@@ -403,7 +403,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v11</div>
+        <div class="version">v12</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -691,12 +691,19 @@
   }
 
   // ---------- lock ----------
+  // lock/archive get a history entry, so the phone's back button/gesture returns
+  // to the main page instead of leaving the app
   $('openArchiveBtn').addEventListener('click', () => {
     $('pwInput').value = '';
+    if (!(history.state && history.state.sub)) history.pushState({ sub: true }, '');
     show('lockScreen');
     setTimeout(() => $('pwInput').focus(), 50);
   });
-  $('lockBackBtn').addEventListener('click', () => show('mainScreen'));
+  window.addEventListener('popstate', () => {
+    renderMain();
+    show('mainScreen');
+  });
+  $('lockBackBtn').addEventListener('click', () => history.back());
   $('pwInput').addEventListener('input', e => {
     const el = e.target;
     if (el.value === PASSWORD) {
@@ -938,10 +945,7 @@
     limitTimer = setTimeout(() => m.classList.remove('show'), 2000);
   }
 
-  $('closeBtn').addEventListener('click', () => {
-    renderMain();
-    show('mainScreen');
-  });
+  $('closeBtn').addEventListener('click', () => history.back());
 
   // real countdown: re-check the clock every minute and whenever the app comes back
   // to the foreground, so long-open sessions still fade and purge for real
@@ -955,6 +959,7 @@
 
   // ---------- boot ----------
   load();
+  if (history.state && history.state.sub) history.replaceState(null, '');
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   openMirror();
   // #import=<urlencoded JSON array> — hash never reaches the server, thoughts stay private

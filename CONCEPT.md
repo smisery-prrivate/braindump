@@ -100,6 +100,11 @@ People besides Pat now use the app.
 - Archive header button slightly bigger (14px/11x17px) — deliberately still quiet,
   focus stays on dump + five.
 
+## Back button (v12, 2026-07-23)
+Opening lock/archive pushes a history entry; popstate shows the main screen. So the
+phone's back button/gesture goes archive -> main instead of exiting the app. "Lock it"
+and the lock screen's Back now call history.back() to keep the history clean.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
