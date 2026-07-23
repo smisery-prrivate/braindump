@@ -91,6 +91,15 @@ People besides Pat now use the app.
   because touch-action:none sits only on the handle.
 - Real cloud sync across devices = post-MVP (needs a server + accounts).
 
+## English + long-press (v11, 2026-07-23)
+- Drag & drop (v10) replaced: it worked poorly on phones. Now LONG-PRESS (500ms) on a
+  five/guest card opens a confirm modal "Back to the archive?" -> Move back / Cancel.
+  Short tap still flips light/dark; moving the finger (scroll) cancels the press.
+- Entire UI switched to English (Pat: users are not all German). Speech recognition
+  language now follows the phone (navigator.language) instead of hardcoded de-DE.
+- Archive header button slightly bigger (14px/11x17px) — deliberately still quiet,
+  focus stays on dump + five.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

@@ -1,7 +1,7 @@
 {
   "name": "Brain Relieve",
   "short_name": "Brain Relieve",
-  "description": "Alles aus dem Kopf. Maximal fünf zählen.",
+  "description": "Everything out of your head. Only five count.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#faf7f2",

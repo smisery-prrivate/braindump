@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
@@ -169,43 +169,6 @@
     justify-content: center;
   }
   .donebtn:active { opacity: 1; transform: scale(0.9); }
-  .draghandle {
-    flex: none;
-    opacity: 0.35;
-    font-size: 15px;
-    padding: 4px 2px;
-    cursor: grab;
-    touch-action: none;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-  .dragclone {
-    position: fixed;
-    z-index: 20;
-    pointer-events: none;
-    opacity: 0.92;
-    box-shadow: 0 14px 34px rgba(30,41,59,0.35);
-    margin: 0;
-  }
-  #dropZone {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: 0;
-    width: 100%;
-    max-width: 480px;
-    padding: 30px 16px calc(env(safe-area-inset-bottom) + 30px);
-    background: var(--bg);
-    border-top: 2px dashed var(--muted);
-    text-align: center;
-    color: #475569;
-    font-size: 15px;
-    font-weight: 600;
-    z-index: 6;
-    display: none;
-  }
-  #dropZone.show { display: block; }
-  #dropZone.hot { background: var(--card-light); border-color: var(--teal); color: var(--teal-dark); }
   .backuprow {
     display: flex;
     align-items: center;
@@ -297,8 +260,8 @@
     background: #fff;
     color: #475569;
     font: inherit;
-    font-size: 13px;
-    padding: 9px 14px;
+    font-size: 14px;
+    padding: 11px 17px;
     border-radius: 999px;
     cursor: pointer;
   }
@@ -440,38 +403,37 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v10</div>
+        <div class="version">v11</div>
       </div>
-      <button id="openArchiveBtn">🔒 <span id="count">Archiv</span></button>
+      <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
 
     <div class="fivehead">
-      <h2>Meine Fünf</h2>
+      <h2>My Five</h2>
       <span id="fiveCount"></span>
     </div>
     <div id="fiveList"></div>
-    <div id="fiveEmpty" hidden>Noch nichts priorisiert.<br>Öffne das Archiv, um bis zu fünf Dinge zu wählen.</div>
+    <div id="fiveEmpty" hidden>Nothing prioritized yet.<br>Open the archive to pick up to five things.</div>
 
     <div class="guesthead" id="guestHead" hidden>
-      <h2>Gäste</h2>
-      <span>verfallen von selbst</span>
+      <h2>Guests</h2>
+      <span>expire on their own</span>
     </div>
     <div id="guestList"></div>
 
     <div class="dock">
-      <div id="dumpFlash">Im Archiv. Weg damit.</div>
+      <div id="dumpFlash">Into the archive. Gone.</div>
       <div class="inputrow">
-        <textarea id="dumpInput" rows="1" placeholder="Was ist im Kopf?"></textarea>
-        <button id="sendBtn" class="iconbtn" title="Senden">➤</button>
+        <textarea id="dumpInput" rows="1" placeholder="What's on your mind?"></textarea>
+        <button id="sendBtn" class="iconbtn" title="Send">➤</button>
       </div>
     </div>
-    <button id="micBtn" title="Sprechen">🎤</button>
-    <div id="dropZone">Loslassen: zurück ins Archiv</div>
+    <button id="micBtn" title="Speak">🎤</button>
   </section>
 
   <div id="undoToast">
-    <span>Weg. Erledigt.</span>
-    <button id="undoBtn">Rückgängig</button>
+    <span>Done. Gone.</span>
+    <button id="undoBtn">Undo</button>
   </div>
 
   <div id="modal" hidden>
@@ -479,34 +441,34 @@
       <h3 id="modalTitle"></h3>
       <p id="modalText"></p>
       <button id="modalOk" class="bigbtn"></button>
-      <button id="modalCancel" class="ghost">Abbrechen</button>
+      <button id="modalCancel" class="ghost">Cancel</button>
     </div>
   </div>
 
   <!-- Lock -->
   <section id="lockScreen" class="screen">
     <div class="lockicon">🔒</div>
-    <p>Das Archiv kostet Aufwand.<br>Das ist Absicht.</p>
+    <p>The archive costs effort.<br>That's the point.</p>
     <input id="pwInput" type="password" inputmode="numeric" autocomplete="off" placeholder="••••">
-    <button class="ghost back" id="lockBackBtn">Zurück</button>
+    <button class="ghost back" id="lockBackBtn">Back</button>
   </section>
 
   <!-- Archive -->
   <section id="archiveScreen" class="screen">
     <header>
-      <h1>Archiv</h1>
+      <h1>Archive</h1>
       <span id="archCount"></span>
     </header>
-    <div id="limitMsg">Fünf sind fünf. Erst eins wegnehmen.</div>
+    <div id="limitMsg">Five is five. Remove one first.</div>
     <div id="archList"></div>
-    <div id="archEmpty" hidden>Leer. Geh dumpen.</div>
+    <div id="archEmpty" hidden>Empty. Go dump.</div>
     <div class="backuprow">
       <span id="backupHint"></span>
-      <button id="backupBtn">💾 Backup speichern</button>
-      <button id="restoreBtn">Laden</button>
+      <button id="backupBtn">💾 Save backup</button>
+      <button id="restoreBtn">Restore</button>
       <input id="restoreFile" type="file" accept="application/json,.json" hidden>
     </div>
-    <button class="bigbtn" id="closeBtn">Schloss zu</button>
+    <button class="bigbtn" id="closeBtn">Lock it</button>
   </section>
 
 </div>
@@ -572,7 +534,7 @@
             purgeReal();
             localStorage.setItem(STORE_KEY, JSON.stringify(items));
             renderMain();
-            flash('Aus Sicherung wiederhergestellt.');
+            flash('Restored from backup copy.');
           }
         };
       } else {
@@ -599,9 +561,9 @@
   function ageLabel(it) {
     const d = Math.floor(age(it) / DAY);
     const left = EXPIRE_DAYS - d;
-    if (it.priority) return d === 0 ? 'heute' : `vor ${d} T`;
-    if (d >= FADE_START_DAYS) return `läuft in ${Math.max(left, 0)} T ab`;
-    return d === 0 ? 'heute' : `vor ${d} T`;
+    if (it.priority) return d === 0 ? 'today' : `${d} d ago`;
+    if (d >= FADE_START_DAYS) return `expires in ${Math.max(left, 0)} d`;
+    return d === 0 ? 'today' : `${d} d ago`;
   }
 
   // ---------- screens ----------
@@ -612,7 +574,7 @@
 
   // ---------- main screen ----------
   function renderMain() {
-    $('count').textContent = items.length ? `${items.length} im Archiv` : 'Archiv';
+    $('count').textContent = items.length ? `${items.length} in archive` : 'Archive';
     const five = items.filter(it => it.priority)
       .sort((a, b) => (a.priority === b.priority) ? b.created - a.created : (a.priority === 'dark' ? -1 : 1));
     const list = $('fiveList');
@@ -623,13 +585,14 @@
       const txt = document.createElement('div');
       txt.className = 'txt';
       txt.textContent = it.text;
-      el.append(dragHandle(it), txt, doneBtn(it));
+      el.append(txt, doneBtn(it));
       // tap flips the weight (light <-> dark); removal stays behind the archive ritual or the check
       el.addEventListener('click', () => {
         it.priority = it.priority === 'dark' ? 'light' : 'dark';
         save();
         renderMain();
       });
+      attachLongPress(el, it);
       list.appendChild(el);
     }
     $('fiveEmpty').hidden = five.length > 0;
@@ -647,8 +610,9 @@
       txt.textContent = it.text;
       const left = document.createElement('div');
       left.className = 'left';
-      left.textContent = `noch ${guestDaysLeft(it)} T`;
-      el.append(dragHandle(it), txt, left, doneBtn(it));
+      left.textContent = `${guestDaysLeft(it)} d left`;
+      el.append(txt, left, doneBtn(it));
+      attachLongPress(el, it);
       glist.appendChild(el);
     }
     $('guestHead').hidden = gs.length === 0;
@@ -691,7 +655,7 @@
     input.style.height = 'auto';
     sendBtn.classList.remove('ready');
     renderMain();
-    flash(lines.length > 1 ? `${lines.length} Gedanken im Archiv.` : 'Im Archiv. Weg damit.');
+    flash(lines.length > 1 ? `${lines.length} thoughts archived.` : 'Into the archive. Gone.');
   }
 
   // ---------- voice ----------
@@ -704,7 +668,7 @@
     micBtn.addEventListener('click', () => {
       if (listening) { rec.stop(); return; }
       rec = new SR();
-      rec.lang = 'de-DE';
+      rec.lang = navigator.language || 'en-US';
       rec.interimResults = true;
       rec.continuous = false;
       baseText = input.value ? input.value.trim() + ' ' : '';
@@ -760,14 +724,14 @@
       txt.textContent = it.text;
       const ag = document.createElement('div');
       ag.className = 'age';
-      ag.textContent = isGuest(it) ? `Gast · noch ${guestDaysLeft(it)} T` : ageLabel(it);
+      ag.textContent = isGuest(it) ? `guest · ${guestDaysLeft(it)} d left` : ageLabel(it);
       el.append(txt, ag, doneBtn(it));
       attachTap(el, it);
       list.appendChild(el);
     }
     $('archEmpty').hidden = visible.length > 0;
     const g = guests().length;
-    $('archCount').textContent = `${marks()} / ${MAX_MARKS} gewählt` + (g ? ` · ${g} Gäste` : '');
+    $('archCount').textContent = `${marks()} / ${MAX_MARKS} picked` + (g ? ` · ${g} guest${g > 1 ? 's' : ''}` : '');
     renderBackupHint();
   }
 
@@ -801,7 +765,7 @@
     if (isGuest(it)) {
       // promote guest into the real five — only if a slot is free
       if (marks() < MAX_MARKS) { it.guest = null; it.priority = 'dark'; commit(); }
-      else block(el, 'Fünf sind fünf. Erst eins wegnehmen.');
+      else block(el, 'Five is five. Remove one first.');
       return;
     }
     if (it.priority === 'light' || marks() < MAX_MARKS) { it.priority = 'dark'; commit(); return; }
@@ -811,20 +775,20 @@
   // a thought gets exactly one guest life — afterwards: into the five, or dump it anew
   function tryGuest(it, el) {
     if (it.guestUsed) {
-      showModal('Fünf sind fünf.',
-        'Dieser Gedanke war schon einmal Gast. Jetzt gibt es nur noch: in die Fünf holen (erst eins wegnehmen) oder neu dumpen.',
-        'Verstanden', null);
+      showModal('Five is five.',
+        'This thought already had its guest life. Now it either joins the five (remove one first) or gets dumped again.',
+        'Got it', null);
       return;
     }
     if (guests().length >= MAX_GUESTS) {
-      showModal('Alles voll.',
-        `Die Fünf sind voll und alle ${MAX_GUESTS} Gastplätze belegt. Erst etwas loslassen.`,
-        'Verstanden', null);
+      showModal('All full.',
+        `The five are full and all ${MAX_GUESTS} guest slots are taken. Let something go first.`,
+        'Got it', null);
       return;
     }
-    showModal('Fünf sind fünf.',
-      `Als Gast dazu? Ein Gast verfällt nach ${GUEST_DAYS} Tagen von selbst und lässt sich nicht verlängern.`,
-      'Als Gast dazu',
+    showModal('Five is five.',
+      `Add it as a guest? A guest expires after ${GUEST_DAYS} days on its own and cannot be extended.`,
+      'Add as guest',
       () => { it.guest = Date.now(); it.guestUsed = true; commit(); });
   }
 
@@ -846,8 +810,8 @@
   function renderBackupHint() {
     const t = +localStorage.getItem(BACKUP_KEY) || 0;
     $('backupHint').textContent = t
-      ? 'Letztes Backup: ' + (Math.floor((Date.now() - t) / DAY) === 0 ? 'heute' : 'vor ' + Math.floor((Date.now() - t) / DAY) + ' T')
-      : 'Noch kein Backup.';
+      ? 'Last backup: ' + (Math.floor((Date.now() - t) / DAY) === 0 ? 'today' : Math.floor((Date.now() - t) / DAY) + ' d ago')
+      : 'No backup yet.';
   }
   $('backupBtn').addEventListener('click', () => {
     const blob = new Blob(
@@ -884,8 +848,8 @@
       save();
       renderMain();
       renderArchive();
-      $('backupHint').textContent = n + ' Gedanken wiederhergestellt.';
-    }).catch(() => { $('backupHint').textContent = 'Datei nicht lesbar.'; });
+      $('backupHint').textContent = n + ' thoughts restored.';
+    }).catch(() => { $('backupHint').textContent = "Can't read that file."; });
   });
 
   // ---------- letting go: delete anywhere, no friction, 5s undo ----------
@@ -893,7 +857,7 @@
   function doneBtn(it) {
     const b = document.createElement('button');
     b.className = 'donebtn';
-    b.title = 'Erledigt – löschen';
+    b.title = 'Done – delete';
     b.textContent = '✓';
     b.addEventListener('click', e => {
       e.stopPropagation();
@@ -928,62 +892,40 @@
     if ($('archiveScreen').classList.contains('active')) renderArchive();
   }
 
-  // ---------- drag a five/guest card back to the archive ----------
-  let drag = null;
-  function dragHandle(it) {
-    const h = document.createElement('div');
-    h.className = 'draghandle';
-    h.textContent = '⠿';
-    h.addEventListener('pointerdown', e => {
-      e.preventDefault();
-      drag = { it, card: h.parentElement, startX: e.clientX, startY: e.clientY, active: false };
-      try { h.setPointerCapture(e.pointerId); } catch (err) { /* synthetic events */ }
+  // ---------- long-press a five/guest card: offer to move it back to the archive ----------
+  function attachLongPress(el, it) {
+    let timer = null, sx = 0, sy = 0, fired = false;
+    el.addEventListener('pointerdown', e => {
+      sx = e.clientX; sy = e.clientY; fired = false;
+      timer = setTimeout(() => {
+        timer = null;
+        fired = true;
+        el._lpFired = true;
+        const snippet = it.text.length > 40 ? it.text.slice(0, 40) + '…' : it.text;
+        showModal('Back to the archive?',
+          `"${snippet}" keeps its age and stays in the archive. You can pick it again anytime.`,
+          'Move back',
+          () => { it.priority = null; it.guest = null; save(); renderMain(); flash('Back in the archive.'); });
+      }, 500);
     });
-    h.addEventListener('pointermove', e => {
-      if (!drag) return;
-      if (!drag.active) {
-        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 8) return;
-        drag.active = true;
-        const r = drag.card.getBoundingClientRect();
-        drag.clone = drag.card.cloneNode(true);
-        drag.clone.classList.add('dragclone');
-        drag.clone.style.width = r.width + 'px';
-        drag.offsetX = drag.startX - r.left;
-        drag.offsetY = drag.startY - r.top;
-        document.body.appendChild(drag.clone);
-        drag.card.style.opacity = '0.3';
-        $('dropZone').classList.add('show');
-      }
-      drag.clone.style.left = (e.clientX - drag.offsetX) + 'px';
-      drag.clone.style.top = (e.clientY - drag.offsetY) + 'px';
-      const dz = $('dropZone').getBoundingClientRect();
-      $('dropZone').classList.toggle('hot', e.clientY >= dz.top);
+    const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    el.addEventListener('pointermove', e => {
+      if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancel();
     });
-    const end = e => {
-      if (!drag) return;
-      if (drag.active) {
-        const dz = $('dropZone').getBoundingClientRect();
-        const inZone = e.clientY >= dz.top;
-        drag.clone.remove();
-        drag.card.style.opacity = '';
-        $('dropZone').classList.remove('show');
-        $('dropZone').classList.remove('hot');
-        if (inZone) {
-          drag.it.priority = null;
-          drag.it.guest = null;
-          save();
-          renderMain();
-          flash('Zurück ins Archiv.');
-        }
-      }
-      drag = null;
-    };
-    h.addEventListener('pointerup', end);
-    h.addEventListener('pointercancel', end);
-    // a tap on the handle must never flip the card's priority
-    h.addEventListener('click', e => e.stopPropagation());
-    return h;
+    el.addEventListener('pointerup', cancel);
+    el.addEventListener('pointercancel', cancel);
+    el.addEventListener('contextmenu', e => e.preventDefault());
   }
+  // after a long-press, the released tap must not flip the card's priority —
+  // document-level capture runs before any card listener, guaranteed
+  document.addEventListener('click', e => {
+    const card = e.target.closest ? e.target.closest('.card') : null;
+    if (card && card._lpFired) {
+      card._lpFired = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
 
   let limitTimer;
   function block(el, msg) {
@@ -1023,7 +965,7 @@
         const texts = arr.filter(t => typeof t === 'string' && t.trim()).map(t => t.trim());
         if (texts.length) {
           addThoughts(texts);
-          setTimeout(() => flash(`${texts.length} Gedanken importiert.`), 300);
+          setTimeout(() => flash(`${texts.length} thoughts imported.`), 300);
         }
       }
     } catch (e) { /* malformed import — ignore */ }
