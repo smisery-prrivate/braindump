@@ -105,6 +105,14 @@ Opening lock/archive pushes a history entry; popstate shows the main screen. So 
 phone's back button/gesture goes archive -> main instead of exiting the app. "Lock it"
 and the lock screen's Back now call history.back() to keep the history clean.
 
+## Incremental friction (v13, 2026-07-24)
+Marking costs more as the head fills up (Pat's request after real-world testing):
+- Five: slots 1-3 free tap · slot 4 = confirm modal · slot 5 = hold button 2s (fills).
+- Guests: cap raised 3 -> 5 · guests 1-3 = confirm tap · guest 4 = 2s hold ·
+  guest 5 = 3s hold.
+- At 5+5 any further attempt gets a plain stop popup: "Knock something off the list
+  before clogging your mental load." (Pat's wording, shortened.)
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
