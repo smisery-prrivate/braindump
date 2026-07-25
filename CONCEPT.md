@@ -113,6 +113,15 @@ Marking costs more as the head fills up (Pat's request after real-world testing)
 - At 5+5 any further attempt gets a plain stop popup: "Knock something off the list
   before clogging your mental load." (Pat's wording, shortened.)
 
+## Thinking instead of holding (v14, 2026-07-24)
+Pat + Claude agreed: friction should force reflection, not patience. Hold-buttons
+replaced by cognitive effort ("Beides gestaffelt"):
+- Five slot 4: confirm tap (unchanged). Slot 5: must TYPE a why (>= 3 words,
+  "Why this, why now?") — stored on the item as `why`, shown again on long-press.
+- Guest 4: must tap which of the current five the newcomer beats (pure reflection,
+  nothing happens to the tapped one). Guest 5: why + comparison, hardest step.
+- 5+5 stop popup unchanged. Backup/restore round-trips the `why` field.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

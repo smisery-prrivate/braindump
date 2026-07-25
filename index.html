@@ -393,14 +393,42 @@
   .modalcard p { font-size: 14px; color: #475569; line-height: 1.5; }
   .modalcard .bigbtn { margin-top: 16px; }
   .modalcard .ghost { width: 100%; margin-top: 2px; }
-  .bigbtn.hold {
-    background-image: linear-gradient(var(--teal), var(--teal));
-    background-repeat: no-repeat;
-    background-size: 0% 100%;
-    touch-action: none;
-    user-select: none;
-    -webkit-user-select: none;
+  .bigbtn:disabled { opacity: 0.35; cursor: default; }
+  #modalInput {
+    width: 100%;
+    margin-top: 12px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 15px;
+    resize: none;
+    min-height: 48px;
+    outline: none;
+    background: #fff;
+    color: var(--ink);
   }
+  #modalInput:focus { border-color: var(--teal); }
+  #modalCompare {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .comparebtn {
+    border: 1.5px solid #e2e8f0;
+    background: #fff;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .comparebtn.sel { border-color: var(--teal); background: #e6f7f4; }
 </style>
 </head>
 <body>
@@ -411,7 +439,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v13</div>
+        <div class="version">v14</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -448,6 +476,8 @@
     <div class="modalcard">
       <h3 id="modalTitle"></h3>
       <p id="modalText"></p>
+      <textarea id="modalInput" rows="2" hidden></textarea>
+      <div id="modalCompare" hidden></div>
       <button id="modalOk" class="bigbtn"></button>
       <button id="modalCancel" class="ghost">Cancel</button>
     </div>
@@ -768,21 +798,23 @@
     });
   }
 
-  // slots 1-3 are free; the 4th asks once, the 5th must be held — increasing friction
-  function requestMark(apply) {
+  // slots 1-3 are free; the 4th asks once, the 5th demands a written why — increasing thought
+  function requestMark(it, apply) {
     const n = marks() + 1;
     if (n <= 3) { apply(); return; }
     if (n === 4) {
-      showModal('Four of five.', 'One slot left after this. Sure it is a real priority?', 'Yes, add it', apply);
+      showModal('Four of five.', 'One slot left after this. Sure it is a real priority?', 'Yes, add it', () => apply());
     } else {
-      showModal('The last slot.', 'Five is the hard limit. Hold the button to fill your final slot.', 'Hold to add', apply, 2000);
+      showModal('The last slot.', 'Five is the hard limit. Say why this one earns the final spot.', 'Add it',
+        res => { it.why = res.reason; apply(); },
+        { reason: 'Why this, why now?' });
     }
   }
 
   function singleTap(it, el) {
     if (it.priority) { it.priority = null; commit(); return; }
     if (isGuest(it)) { it.guest = null; commit(); return; }
-    if (marks() < MAX_MARKS) { requestMark(() => { it.priority = 'light'; commit(); }); return; }
+    if (marks() < MAX_MARKS) { requestMark(it, () => { it.priority = 'light'; commit(); }); return; }
     tryGuest(it, el);
   }
 
@@ -790,12 +822,12 @@
     if (it.priority === 'dark') { it.priority = 'light'; commit(); return; }  // downgrade
     if (isGuest(it)) {
       // promote guest into the real five — only if a slot is free
-      if (marks() < MAX_MARKS) requestMark(() => { it.guest = null; it.priority = 'dark'; commit(); });
+      if (marks() < MAX_MARKS) requestMark(it, () => { it.guest = null; it.priority = 'dark'; commit(); });
       else block(el, 'Five is five. Remove one first.');
       return;
     }
     if (it.priority === 'light') { it.priority = 'dark'; commit(); return; }  // upgrade, no new slot
-    if (marks() < MAX_MARKS) { requestMark(() => { it.priority = 'dark'; commit(); }); return; }
+    if (marks() < MAX_MARKS) { requestMark(it, () => { it.priority = 'dark'; commit(); }); return; }
     tryGuest(it, el);
   }
 
@@ -814,54 +846,75 @@
         'Got it', null);
       return;
     }
-    const add = () => { it.guest = Date.now(); it.guestUsed = true; commit(); };
-    // guests 1-3 cost a confirm tap, guest 4 a 2s hold, guest 5 a 3s hold
+    const add = res => {
+      it.guest = Date.now();
+      it.guestUsed = true;
+      if (res && res.reason) it.why = res.reason;
+      commit();
+    };
+    // guests 1-3 cost a confirm tap, guest 4 a comparison, guest 5 a why plus a comparison
     if (g < 3) {
       showModal('Five is five.',
         `Add it as a guest? A guest expires after ${GUEST_DAYS} days on its own and cannot be extended.`,
         'Add as guest', add);
     } else if (g === 3) {
       showModal('Guest four.',
-        'The overflow is getting crowded. Hold the button if it really has to come along.',
-        'Hold to add', add, 2000);
+        'If it really has to come along, it should beat one of your five. Tap the one it beats.',
+        'Add as guest', add,
+        { compare: items.filter(i => i.priority) });
     } else {
       showModal('The very last guest.',
-        'After this one, nothing fits anymore. Hold on — like your mental load does.',
-        'Hold to add', add, 3000);
+        'Last slot in your head. Say why — and tap what it beats.',
+        'Add as guest', add,
+        { reason: 'Why does it have to come along?', compare: items.filter(i => i.priority) });
     }
   }
 
-  // holdMs: the OK button must be held down that long (fills up visually) — deliberate friction
-  function showModal(title, text, okLabel, onOk, holdMs) {
+  // Friction is thinking, not waiting: opts.reason demands a few typed words,
+  // opts.compare demands tapping which existing priority the newcomer beats.
+  function showModal(title, text, okLabel, onOk, opts) {
+    opts = opts || {};
     $('modalTitle').textContent = title;
     $('modalText').textContent = text;
-    const ok = $('modalOk');
+    const ok = $('modalOk'), inp = $('modalInput'), cmp = $('modalCompare');
     ok.textContent = okLabel;
     $('modalCancel').hidden = !onOk;
-    $('modal').hidden = false;
-    ok.classList.toggle('hold', !!(holdMs && onOk));
-    ok.style.transition = 'none';
-    ok.style.backgroundSize = '0% 100%';
-    ok.onclick = ok.onpointerdown = ok.onpointerup = ok.onpointerleave = ok.onpointercancel = null;
-    if (holdMs && onOk) {
-      let t = null;
-      ok.onpointerdown = e => {
-        e.preventDefault();
-        ok.style.transition = 'background-size ' + holdMs + 'ms linear';
-        ok.style.backgroundSize = '100% 100%';
-        t = setTimeout(() => { t = null; $('modal').hidden = true; onOk(); }, holdMs);
-      };
-      const stop = () => {
-        if (t) { clearTimeout(t); t = null; }
-        ok.style.transition = 'background-size 150ms';
-        ok.style.backgroundSize = '0% 100%';
-      };
-      ok.onpointerup = stop;
-      ok.onpointerleave = stop;
-      ok.onpointercancel = stop;
-    } else {
-      ok.onclick = () => { $('modal').hidden = true; if (onOk) onOk(); };
+    const needText = !!opts.reason;
+    const needPick = Array.isArray(opts.compare) && opts.compare.length > 0;
+    let picked = null;
+    inp.hidden = !needText;
+    inp.value = '';
+    inp.placeholder = needText ? opts.reason : '';
+    cmp.hidden = !needPick;
+    cmp.innerHTML = '';
+    const ready = () => {
+      const words = inp.value.trim().split(/\s+/).filter(Boolean).length;
+      ok.disabled = (needText && words < 3) || (needPick && !picked);
+    };
+    inp.oninput = needText ? ready : null;
+    if (needPick) {
+      for (const c of opts.compare) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'comparebtn';
+        b.textContent = c.text.length > 60 ? c.text.slice(0, 60) + '…' : c.text;
+        b.onclick = () => {
+          picked = c;
+          for (const x of cmp.children) x.classList.remove('sel');
+          b.classList.add('sel');
+          ready();
+        };
+        cmp.appendChild(b);
+      }
     }
+    ready();
+    $('modal').hidden = false;
+    if (needText) setTimeout(() => inp.focus(), 60);
+    ok.onclick = () => {
+      if (ok.disabled) return;
+      $('modal').hidden = true;
+      if (onOk) onOk({ reason: inp.value.trim() || null, picked });
+    };
     $('modalCancel').onclick = () => { $('modal').hidden = true; };
   }
 
@@ -902,7 +955,8 @@
         if (it && it.id && typeof it.text === 'string' && !known.has(it.id)) {
           items.push({ id: it.id, text: it.text, created: +it.created || Date.now(),
             priority: it.priority === 'dark' || it.priority === 'light' ? it.priority : null,
-            guest: +it.guest || null, guestUsed: !!it.guestUsed });
+            guest: +it.guest || null, guestUsed: !!it.guestUsed,
+            why: typeof it.why === 'string' ? it.why : undefined });
           n++;
         }
       }
@@ -965,7 +1019,8 @@
         el._lpFired = true;
         const snippet = it.text.length > 40 ? it.text.slice(0, 40) + '…' : it.text;
         showModal('Back to the archive?',
-          `"${snippet}" keeps its age and stays in the archive. You can pick it again anytime.`,
+          `"${snippet}" keeps its age and stays in the archive. You can pick it again anytime.` +
+          (it.why ? ` Your why back then: "${it.why}"` : ''),
           'Move back',
           () => { it.priority = null; it.guest = null; save(); renderMain(); flash('Back in the archive.'); });
       }, 500);
