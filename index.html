@@ -439,7 +439,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v15</div>
+        <div class="version">v16</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -852,21 +852,21 @@
       if (res && res.reason) it.why = res.reason;
       commit();
     };
-    // overflow 1-3 cost a confirm tap, slot 4 a comparison, slot 5 a why plus a comparison
+    // overflow 1-3 cost a confirm tap, slots 4 and 5 a typed why — same principle as the five
     if (g < 3) {
       showModal('Five is five.',
         `Park it in the overflow? It expires after ${GUEST_DAYS} days on its own and cannot be extended.`,
         'Add to overflow', add);
     } else if (g === 3) {
-      showModal('Overflow four.',
-        'If it really has to come along, it should beat one of your five. Tap the one it beats.',
+      showModal('Getting a lot.',
+        'The overflow is filling up. Make this one earn its spot.',
         'Add to overflow', add,
-        { compare: items.filter(i => i.priority) });
+        { reason: 'Why do you want to add it to the overflow?' });
     } else {
       showModal('The last overflow spot.',
-        'Last slot in your head. Say why — and tap what it beats.',
+        'After this one, nothing fits anymore.',
         'Add to overflow', add,
-        { reason: 'Why does it have to come along?', compare: items.filter(i => i.priority) });
+        { reason: 'Why does it have to come along?' });
     }
   }
 

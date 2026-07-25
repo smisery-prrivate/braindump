@@ -122,6 +122,14 @@ replaced by cognitive effort ("Beides gestaffelt"):
   nothing happens to the tapped one). Guest 5: why + comparison, hardest step.
 - 5+5 stop popup unchanged. Backup/restore round-trips the `why` field.
 
+## Overflow why (v16, 2026-07-25)
+Pat after testing: the why-question works for the five; overflow should use the same
+principle instead of the comparison tap. Overflow slot 4: "Getting a lot." +
+"Why do you want to add it to the overflow?" (typed, 3+ words). Slot 5: "The last
+overflow spot." + "Why does it have to come along?". Comparison mechanic removed
+from flows (code path still exists in showModal, unused). "Guests" renamed to
+"Overflow" in v15.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
