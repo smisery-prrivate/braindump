@@ -136,6 +136,17 @@ rows: title = thought snippet, body = stored why (if any), buttons "Edit" and
 (for five/overflow only) "Back to archive". Edit opens a prefilled input; save
 needs non-empty text; age/priority/why are preserved. Short tap behavior unchanged.
 
+## Compass (v18, 2026-07-27)
+Third section besides five + overflow: max 3 STANDING things that define the path
+forward (Pat: "need to be remembered on an irregular basis multiple times a week").
+- Slim indigo cards at the TOP of the main view; never expire; excluded from
+  five/overflow tap logic (tap shows hint).
+- In/out only via long-press options: "Make it a compass" (anywhere) /
+  "Remove from compass". Hard limit 3 ("Three is the path.").
+- Irregular reminder: on app open, at most every 6h and with 60% probability, a
+  full-screen spotlight shows one random compass thing (tap or 6s to dismiss;
+  braindump.lastSpot in localStorage). Real push while closed would need a server.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

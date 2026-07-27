@@ -247,6 +247,46 @@
   }
   .guesthead h2 { font-size: 13px; font-weight: 700; color: #b45309; text-transform: uppercase; letter-spacing: 0.06em; }
   .guesthead span { font-size: 12px; color: var(--muted); }
+  .compasshead {
+    margin: 2px 4px 8px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .compasshead h2 { font-size: 13px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: 0.06em; }
+  .compasshead span { font-size: 12px; color: var(--muted); }
+  .card.compass {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    color: #3730a3;
+    font-size: 14px;
+    padding: 10px 14px;
+    font-weight: 600;
+  }
+  .arch.compass { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; }
+  .arch.compass .age { color: #6366f1; }
+  #spot {
+    position: fixed;
+    inset: 0;
+    background: rgba(14,23,38,0.82);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    padding: 28px;
+  }
+  #spot[hidden] { display: none; }
+  .spotcard {
+    background: #eef2ff;
+    border-radius: 22px;
+    padding: 34px 26px;
+    text-align: center;
+    max-width: 420px;
+    width: 100%;
+  }
+  .spotlabel { font-size: 13px; letter-spacing: 0.12em; font-weight: 700; color: #6366f1; text-transform: uppercase; }
+  #spotText { font-size: 24px; font-weight: 700; color: #312e81; margin-top: 14px; line-height: 1.35; word-break: break-word; }
+  .spothint { font-size: 12px; color: #94a3b8; margin-top: 18px; }
   #fiveEmpty {
     color: var(--muted);
     font-size: 14px;
@@ -440,10 +480,16 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v17</div>
+        <div class="version">v18</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
+
+    <div class="compasshead" id="compassHead" hidden>
+      <h2>🧭 Compass</h2>
+      <span>the path forward</span>
+    </div>
+    <div id="compassList"></div>
 
     <div class="fivehead">
       <h2>My Five</h2>
@@ -481,7 +527,16 @@
       <div id="modalCompare" hidden></div>
       <button id="modalOk" class="bigbtn"></button>
       <button id="modalAlt" class="bigbtn altbtn" hidden></button>
+      <button id="modalAlt2" class="bigbtn altbtn" hidden></button>
       <button id="modalCancel" class="ghost">Cancel</button>
+    </div>
+  </div>
+
+  <div id="spot" hidden>
+    <div class="spotcard">
+      <div class="spotlabel">🧭 Compass</div>
+      <div id="spotText"></div>
+      <div class="spothint">tap anywhere to dismiss</div>
     </div>
   </div>
 
@@ -537,7 +592,7 @@
       if (it.guest && (now - it.guest) >= GUEST_DAYS * DAY) { it.guest = null; changed = true; }
     }
     const before = items.length;
-    items = items.filter(it => it.priority || it.guest || (now - it.created) < EXPIRE_DAYS * DAY);
+    items = items.filter(it => it.priority || it.guest || it.compass || (now - it.created) < EXPIRE_DAYS * DAY);
     if (items.length !== before) changed = true;
     if (changed) save();
     return changed;
@@ -584,7 +639,8 @@
   }
   const age = it => Date.now() - it.created;
   const isGuest = it => !!it.guest && (Date.now() - it.guest) < GUEST_DAYS * DAY;
-  const expired = it => !it.priority && !isGuest(it) && age(it) >= EXPIRE_DAYS * DAY;
+  const expired = it => !it.priority && !isGuest(it) && !it.compass && age(it) >= EXPIRE_DAYS * DAY;
+  const compasses = () => items.filter(i => i.compass);
   const marks = () => items.filter(it => it.priority).length;
   const guests = () => items.filter(isGuest);
   const guestDaysLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_DAYS * DAY - Date.now()) / DAY));
@@ -592,7 +648,7 @@
 
   // full strength until day 20, then a visible fade-out ticking down to day 30
   function fadeOpacity(it) {
-    if (it.priority) return 1;
+    if (it.priority || it.compass) return 1;
     const d = age(it) / DAY;
     if (d < FADE_START_DAYS) return 1;
     const t = (d - FADE_START_DAYS) / (EXPIRE_DAYS - FADE_START_DAYS);
@@ -601,6 +657,7 @@
   function ageLabel(it) {
     const d = Math.floor(age(it) / DAY);
     const left = EXPIRE_DAYS - d;
+    if (it.compass) return 'compass';
     if (it.priority) return d === 0 ? 'today' : `${d} d ago`;
     if (d >= FADE_START_DAYS) return `expires in ${Math.max(left, 0)} d`;
     return d === 0 ? 'today' : `${d} d ago`;
@@ -615,6 +672,21 @@
   // ---------- main screen ----------
   function renderMain() {
     $('count').textContent = items.length ? `${items.length} in archive` : 'Archive';
+
+    const cs = compasses();
+    const clist = $('compassList');
+    clist.innerHTML = '';
+    for (const it of cs) {
+      const el = document.createElement('div');
+      el.className = 'card compass';
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      txt.textContent = it.text;
+      el.append(txt, doneBtn(it));
+      attachLongPress(el, it);
+      clist.appendChild(el);
+    }
+    $('compassHead').hidden = cs.length === 0;
     const five = items.filter(it => it.priority)
       .sort((a, b) => (a.priority === b.priority) ? b.created - a.created : (a.priority === 'dark' ? -1 : 1));
     const list = $('fiveList');
@@ -763,7 +835,7 @@
     const visible = items.filter(it => !expired(it));
     for (const it of visible.slice().sort((a, b) => b.created - a.created)) {
       const el = document.createElement('div');
-      el.className = 'arch' + (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : ''));
+      el.className = 'arch' + (it.compass ? ' compass' : (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : '')));
       el.style.opacity = isGuest(it) ? guestOpacity(it) : fadeOpacity(it);
       el.dataset.id = it.id;
       const txt = document.createElement('div');
@@ -815,6 +887,7 @@
   }
 
   function singleTap(it, el) {
+    if (it.compass) { block(el, 'A compass thing. Long-press for options.'); return; }
     if (it.priority) { it.priority = null; commit(); return; }
     if (isGuest(it)) { it.guest = null; commit(); return; }
     if (marks() < MAX_MARKS) { requestMark(it, () => { it.priority = 'light'; commit(); }); return; }
@@ -822,6 +895,7 @@
   }
 
   function doubleTap(it, el) {
+    if (it.compass) { block(el, 'A compass thing. Long-press for options.'); return; }
     if (it.priority === 'dark') { it.priority = 'light'; commit(); return; }  // downgrade
     if (isGuest(it)) {
       // promote guest into the real five — only if a slot is free
@@ -892,11 +966,15 @@
     inp.placeholder = opts.reason || '';
     cmp.hidden = !needPick;
     cmp.innerHTML = '';
-    alt.hidden = !opts.alt;
-    if (opts.alt) {
-      alt.textContent = opts.alt.label;
-      alt.onclick = () => { $('modal').hidden = true; opts.alt.onClick(); };
-    }
+    const alts = opts.alts || (opts.alt ? [opts.alt] : []);
+    [alt, $('modalAlt2')].forEach((btn, i) => {
+      const a = alts[i];
+      btn.hidden = !a;
+      if (a) {
+        btn.textContent = a.label;
+        btn.onclick = () => { $('modal').hidden = true; a.onClick(); };
+      }
+    });
     const ready = () => {
       const words = inp.value.trim().split(/\s+/).filter(Boolean).length;
       ok.disabled = (needText && words < (isEdit ? 1 : 3)) || (needPick && !picked);
@@ -929,6 +1007,38 @@
   }
 
   function commit() { save(); renderArchive(); }
+
+  // ---------- compass: max three standing things that define the path ----------
+  function tryCompass(it) {
+    if (compasses().length >= 3) {
+      showModal('Three is the path.',
+        'Three standing things define where you are heading. Remove one from the compass first.',
+        'Got it', null);
+      return;
+    }
+    it.compass = true;
+    it.priority = null;
+    it.guest = null;
+    save();
+    rerender();
+    flash('On your compass.');
+  }
+
+  // irregular reminder: on open, at most every 6h, roughly every other time,
+  // spotlight one random compass thing
+  const SPOT_KEY = 'braindump.lastSpot';
+  function maybeSpotlight() {
+    const cs = compasses();
+    if (!cs.length) return;
+    const last = +localStorage.getItem(SPOT_KEY) || 0;
+    if (Date.now() - last < 6 * 3600000 || Math.random() > 0.6) return;
+    const it = cs[Math.floor(Math.random() * cs.length)];
+    $('spotText').textContent = it.text;
+    $('spot').hidden = false;
+    localStorage.setItem(SPOT_KEY, Date.now() + '');
+    setTimeout(() => { $('spot').hidden = true; }, 6000);
+  }
+  $('spot').addEventListener('click', () => { $('spot').hidden = true; });
 
   // ---------- backup to file + restore ----------
   const BACKUP_KEY = 'braindump.lastBackup';
@@ -965,7 +1075,7 @@
         if (it && it.id && typeof it.text === 'string' && !known.has(it.id)) {
           items.push({ id: it.id, text: it.text, created: +it.created || Date.now(),
             priority: it.priority === 'dark' || it.priority === 'light' ? it.priority : null,
-            guest: +it.guest || null, guestUsed: !!it.guestUsed,
+            guest: +it.guest || null, guestUsed: !!it.guestUsed, compass: !!it.compass,
             why: typeof it.why === 'string' ? it.why : undefined });
           n++;
         }
@@ -1033,14 +1143,24 @@
         fired = true;
         el._lpFired = true;
         const snippet = it.text.length > 40 ? it.text.slice(0, 40) + '…' : it.text;
-        const inFocus = it.priority || isGuest(it);
+        const alts = [];
+        if (it.compass) {
+          alts.push({ label: 'Remove from compass', onClick: () => {
+            it.compass = false; save(); rerender(); flash('Back in the archive.');
+          } });
+        } else {
+          if (it.priority || isGuest(it)) {
+            alts.push({ label: 'Back to archive', onClick: () => {
+              it.priority = null; it.guest = null; save(); rerender(); flash('Back in the archive.');
+            } });
+          }
+          alts.push({ label: '🧭 Make it a compass', onClick: () => tryCompass(it) });
+        }
         showModal(snippet,
           it.why ? `Your why: "${it.why}"` : '',
           '✏️ Edit',
           () => openEdit(it),
-          inFocus ? { alt: { label: 'Back to archive', onClick: () => {
-            it.priority = null; it.guest = null; save(); rerender(); flash('Back in the archive.');
-          } } } : {});
+          { alts });
       }, 500);
     });
     const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
@@ -1105,6 +1225,7 @@
     history.replaceState(null, '', location.pathname);
   }
   renderMain();
+  maybeSpotlight();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js');
   }
