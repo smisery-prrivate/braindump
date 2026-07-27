@@ -130,6 +130,12 @@ overflow spot." + "Why does it have to come along?". Comparison mechanic removed
 from flows (code path still exists in showModal, unused). "Guests" renamed to
 "Overflow" in v15.
 
+## Editable items (v17, 2026-07-27)
+Long-press now opens an OPTIONS modal on every card — five, overflow, and archive
+rows: title = thought snippet, body = stored why (if any), buttons "Edit" and
+(for five/overflow only) "Back to archive". Edit opens a prefilled input; save
+needs non-empty text; age/priority/why are preserved. Short tap behavior unchanged.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

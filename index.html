@@ -394,6 +394,7 @@
   .modalcard .bigbtn { margin-top: 16px; }
   .modalcard .ghost { width: 100%; margin-top: 2px; }
   .bigbtn:disabled { opacity: 0.35; cursor: default; }
+  .bigbtn.altbtn { background: #f1f5f9; color: var(--ink); margin-top: 8px; }
   #modalInput {
     width: 100%;
     margin-top: 12px;
@@ -439,7 +440,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v16</div>
+        <div class="version">v17</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -479,6 +480,7 @@
       <textarea id="modalInput" rows="2" hidden></textarea>
       <div id="modalCompare" hidden></div>
       <button id="modalOk" class="bigbtn"></button>
+      <button id="modalAlt" class="bigbtn altbtn" hidden></button>
       <button id="modalCancel" class="ghost">Cancel</button>
     </div>
   </div>
@@ -772,6 +774,7 @@
       ag.textContent = isGuest(it) ? `overflow · ${guestDaysLeft(it)} d left` : ageLabel(it);
       el.append(txt, ag, doneBtn(it));
       attachTap(el, it);
+      attachLongPress(el, it);
       list.appendChild(el);
     }
     $('archEmpty').hidden = visible.length > 0;
@@ -876,20 +879,27 @@
     opts = opts || {};
     $('modalTitle').textContent = title;
     $('modalText').textContent = text;
-    const ok = $('modalOk'), inp = $('modalInput'), cmp = $('modalCompare');
+    const ok = $('modalOk'), inp = $('modalInput'), cmp = $('modalCompare'), alt = $('modalAlt');
     ok.textContent = okLabel;
     $('modalCancel').hidden = !onOk;
-    const needText = !!opts.reason;
+    // opts.reason: demand a typed why (3+ words) · opts.edit: prefilled text, any non-empty
+    const isEdit = typeof opts.edit === 'string';
+    const needText = !!opts.reason || isEdit;
     const needPick = Array.isArray(opts.compare) && opts.compare.length > 0;
     let picked = null;
     inp.hidden = !needText;
-    inp.value = '';
-    inp.placeholder = needText ? opts.reason : '';
+    inp.value = isEdit ? opts.edit : '';
+    inp.placeholder = opts.reason || '';
     cmp.hidden = !needPick;
     cmp.innerHTML = '';
+    alt.hidden = !opts.alt;
+    if (opts.alt) {
+      alt.textContent = opts.alt.label;
+      alt.onclick = () => { $('modal').hidden = true; opts.alt.onClick(); };
+    }
     const ready = () => {
       const words = inp.value.trim().split(/\s+/).filter(Boolean).length;
-      ok.disabled = (needText && words < 3) || (needPick && !picked);
+      ok.disabled = (needText && words < (isEdit ? 1 : 3)) || (needPick && !picked);
     };
     inp.oninput = needText ? ready : null;
     if (needPick) {
@@ -1008,7 +1018,12 @@
     if ($('archiveScreen').classList.contains('active')) renderArchive();
   }
 
-  // ---------- long-press a five/guest card: offer to move it back to the archive ----------
+  // ---------- long-press any card: options (edit, move back to archive) ----------
+  function openEdit(it) {
+    showModal('Edit thought.', '', 'Save',
+      res => { if (res.reason) { it.text = res.reason; save(); rerender(); } },
+      { edit: it.text });
+  }
   function attachLongPress(el, it) {
     let timer = null, sx = 0, sy = 0, fired = false;
     el.addEventListener('pointerdown', e => {
@@ -1018,11 +1033,14 @@
         fired = true;
         el._lpFired = true;
         const snippet = it.text.length > 40 ? it.text.slice(0, 40) + '…' : it.text;
-        showModal('Back to the archive?',
-          `"${snippet}" keeps its age and stays in the archive. You can pick it again anytime.` +
-          (it.why ? ` Your why back then: "${it.why}"` : ''),
-          'Move back',
-          () => { it.priority = null; it.guest = null; save(); renderMain(); flash('Back in the archive.'); });
+        const inFocus = it.priority || isGuest(it);
+        showModal(snippet,
+          it.why ? `Your why: "${it.why}"` : '',
+          '✏️ Edit',
+          () => openEdit(it),
+          inFocus ? { alt: { label: 'Back to archive', onClick: () => {
+            it.priority = null; it.guest = null; save(); rerender(); flash('Back in the archive.');
+          } } } : {});
       }, 500);
     });
     const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
@@ -1036,7 +1054,7 @@
   // after a long-press, the released tap must not flip the card's priority —
   // document-level capture runs before any card listener, guaranteed
   document.addEventListener('click', e => {
-    const card = e.target.closest ? e.target.closest('.card') : null;
+    const card = e.target.closest ? e.target.closest('.card, .arch') : null;
     if (card && card._lpFired) {
       card._lpFired = false;
       e.stopPropagation();
