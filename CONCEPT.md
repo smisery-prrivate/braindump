@@ -147,6 +147,16 @@ forward (Pat: "need to be remembered on an irregular basis multiple times a week
   full-screen spotlight shows one random compass thing (tap or 6s to dismiss;
   braindump.lastSpot in localStorage). Real push while closed would need a server.
 
+## Drag between categories + fixes (v19, 2026-07-28)
+- Compass exit bug fixed: making something a compass now remembers where it came
+  from (compassPrev); removing it restores five/overflow if there's still room
+  (an expired overflow window or full section falls back to the archive).
+- Overflow window changed 3 days -> 30 HOURS, label counts down hourly ("29 h left").
+- Hold-and-drag: holding a card (450ms) lifts it — release opens the options menu
+  (unchanged), dragging shows a fixed drop bar at the top with four zones
+  (Compass / My Five / Overflow / Archive). Works from main AND archive rows.
+  Drops reuse the same friction modals (whys, limits) as taps.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

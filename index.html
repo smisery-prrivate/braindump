@@ -265,6 +265,46 @@
   }
   .arch.compass { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; }
   .arch.compass .age { color: #6366f1; }
+  .lifted {
+    transform: scale(1.03);
+    box-shadow: 0 10px 26px rgba(30,41,59,0.25);
+    transition: transform .15s;
+  }
+  .dragclone {
+    position: fixed;
+    z-index: 40;
+    pointer-events: none;
+    opacity: 0.92;
+    box-shadow: 0 14px 34px rgba(30,41,59,0.35);
+    margin: 0;
+  }
+  #dropbar {
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    display: none;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    padding: 10px 12px 12px;
+    z-index: 35;
+    background: rgba(250,247,242,0.97);
+    box-shadow: 0 6px 18px rgba(30,41,59,0.12);
+  }
+  #dropbar.show { display: grid; }
+  .dz {
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 10px 4px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    line-height: 1.6;
+  }
+  .dz.hot { border-color: var(--teal); background: #e6f7f4; color: var(--teal-dark); }
   #spot {
     position: fixed;
     inset: 0;
@@ -480,7 +520,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v18</div>
+        <div class="version">v19</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -532,6 +572,13 @@
     </div>
   </div>
 
+  <div id="dropbar">
+    <div class="dz" data-zone="compass">🧭<br>Compass</div>
+    <div class="dz" data-zone="five">✋<br>My Five</div>
+    <div class="dz" data-zone="overflow">⏳<br>Overflow</div>
+    <div class="dz" data-zone="archive">🔒<br>Archive</div>
+  </div>
+
   <div id="spot" hidden>
     <div class="spotcard">
       <div class="spotlabel">🧭 Compass</div>
@@ -574,7 +621,7 @@
   const EXPIRE_DAYS = 30;
   const FADE_START_DAYS = 20;
   const MAX_MARKS = 5;
-  const GUEST_DAYS = 3;    // temporary overflow slots expire on their own
+  const GUEST_MS = 30 * 3600000;   // overflow slots expire after 30 hours
   const MAX_GUESTS = 5;
   const PASSWORD = '1234';
   const STORE_KEY = 'braindump.v1';
@@ -589,7 +636,7 @@
     const now = Date.now();
     let changed = false;
     for (const it of items) {
-      if (it.guest && (now - it.guest) >= GUEST_DAYS * DAY) { it.guest = null; changed = true; }
+      if (it.guest && (now - it.guest) >= GUEST_MS) { it.guest = null; changed = true; }
     }
     const before = items.length;
     items = items.filter(it => it.priority || it.guest || it.compass || (now - it.created) < EXPIRE_DAYS * DAY);
@@ -638,13 +685,13 @@
     };
   }
   const age = it => Date.now() - it.created;
-  const isGuest = it => !!it.guest && (Date.now() - it.guest) < GUEST_DAYS * DAY;
+  const isGuest = it => !!it.guest && (Date.now() - it.guest) < GUEST_MS;
   const expired = it => !it.priority && !isGuest(it) && !it.compass && age(it) >= EXPIRE_DAYS * DAY;
   const compasses = () => items.filter(i => i.compass);
   const marks = () => items.filter(it => it.priority).length;
   const guests = () => items.filter(isGuest);
-  const guestDaysLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_DAYS * DAY - Date.now()) / DAY));
-  const guestOpacity = it => Math.max(0.35, 1 - 0.65 * ((Date.now() - it.guest) / (GUEST_DAYS * DAY)));
+  const guestHoursLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_MS - Date.now()) / 3600000));
+  const guestOpacity = it => Math.max(0.35, 1 - 0.65 * ((Date.now() - it.guest) / GUEST_MS));
 
   // full strength until day 20, then a visible fade-out ticking down to day 30
   function fadeOpacity(it) {
@@ -722,7 +769,7 @@
       txt.textContent = it.text;
       const left = document.createElement('div');
       left.className = 'left';
-      left.textContent = `${guestDaysLeft(it)} d left`;
+      left.textContent = `${guestHoursLeft(it)} h left`;
       el.append(txt, left, doneBtn(it));
       attachLongPress(el, it);
       glist.appendChild(el);
@@ -843,7 +890,7 @@
       txt.textContent = it.text;
       const ag = document.createElement('div');
       ag.className = 'age';
-      ag.textContent = isGuest(it) ? `overflow · ${guestDaysLeft(it)} d left` : ageLabel(it);
+      ag.textContent = isGuest(it) ? `overflow · ${guestHoursLeft(it)} h left` : ageLabel(it);
       el.append(txt, ag, doneBtn(it));
       attachTap(el, it);
       attachLongPress(el, it);
@@ -924,15 +971,20 @@
       return;
     }
     const add = res => {
+      it.priority = null;
+      it.compass = false;
+      delete it.compassPrev;
       it.guest = Date.now();
       it.guestUsed = true;
       if (res && res.reason) it.why = res.reason;
-      commit();
+      save();
+      rerender();
+      if ($('archiveScreen').classList.contains('active')) renderArchive();
     };
     // overflow 1-3 cost a confirm tap, slots 4 and 5 a typed why — same principle as the five
     if (g < 3) {
       showModal('Five is five.',
-        `Park it in the overflow? It expires after ${GUEST_DAYS} days on its own and cannot be extended.`,
+        'Park it in the overflow? It expires after 30 hours on its own and cannot be extended.',
         'Add to overflow', add);
     } else if (g === 3) {
       showModal('Getting a lot.',
@@ -1016,12 +1068,32 @@
         'Got it', null);
       return;
     }
+    // remember where it came from, so leaving the compass restores it
+    it.compassPrev = it.priority ? { priority: it.priority } : (isGuest(it) ? { guest: it.guest } : null);
     it.compass = true;
     it.priority = null;
     it.guest = null;
     save();
     rerender();
     flash('On your compass.');
+  }
+
+  // leaving the compass: go back to where it came from, if that place still has room
+  function uncompass(it) {
+    it.compass = false;
+    const prev = it.compassPrev;
+    delete it.compassPrev;
+    if (prev && prev.priority && marks() < MAX_MARKS) {
+      it.priority = prev.priority;
+      flash('Back in your five.');
+    } else if (prev && prev.guest && (Date.now() - prev.guest) < GUEST_MS && guests().length < MAX_GUESTS) {
+      it.guest = prev.guest;
+      flash('Back in the overflow.');
+    } else {
+      flash('Back in the archive.');
+    }
+    save();
+    rerender();
   }
 
   // irregular reminder: on open, at most every 6h, roughly every other time,
@@ -1128,47 +1200,122 @@
     if ($('archiveScreen').classList.contains('active')) renderArchive();
   }
 
-  // ---------- long-press any card: options (edit, move back to archive) ----------
+  // ---------- hold a card: lift it — release = options menu, drag = move between categories ----------
   function openEdit(it) {
     showModal('Edit thought.', '', 'Save',
       res => { if (res.reason) { it.text = res.reason; save(); rerender(); } },
       { edit: it.text });
   }
+  function openOptions(it) {
+    const snippet = it.text.length > 40 ? it.text.slice(0, 40) + '…' : it.text;
+    const alts = [];
+    if (it.compass) {
+      alts.push({ label: 'Remove from compass', onClick: () => uncompass(it) });
+    } else {
+      if (it.priority || isGuest(it)) {
+        alts.push({ label: 'Back to archive', onClick: () => {
+          it.priority = null; it.guest = null; save(); rerender(); flash('Back in the archive.');
+        } });
+      }
+      alts.push({ label: '🧭 Make it a compass', onClick: () => tryCompass(it) });
+    }
+    showModal(snippet,
+      it.why ? `Your why: "${it.why}"` : '',
+      '✏️ Edit',
+      () => openEdit(it),
+      { alts });
+  }
+  // drop a dragged card onto one of the four category zones
+  function moveTo(it, zone) {
+    if (zone === 'archive') {
+      if (!it.priority && !isGuest(it) && !it.compass) return;
+      it.priority = null; it.guest = null; it.compass = false; delete it.compassPrev;
+      save(); rerender(); flash('Back in the archive.');
+    } else if (zone === 'compass') {
+      if (it.compass) return;
+      tryCompass(it);
+    } else if (zone === 'five') {
+      if (it.priority) return;
+      if (marks() >= MAX_MARKS) {
+        showModal('Five is five.', 'Remove one first — or drop it on Overflow.', 'Got it', null);
+        return;
+      }
+      requestMark(it, () => {
+        it.guest = null; it.compass = false; delete it.compassPrev;
+        it.priority = 'light';
+        save(); rerender();
+      });
+    } else if (zone === 'overflow') {
+      if (isGuest(it)) return;
+      tryGuest(it, null);
+    }
+    if ($('archiveScreen').classList.contains('active')) renderArchive();
+  }
   function attachLongPress(el, it) {
-    let timer = null, sx = 0, sy = 0, fired = false;
+    let timer = null, armed = false, dragging = false, sx = 0, sy = 0, clone = null, offX = 0, offY = 0;
+    const bar = $('dropbar');
+    const reset = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      armed = false;
+      el.classList.remove('lifted');
+      if (dragging) {
+        dragging = false;
+        if (clone) { clone.remove(); clone = null; }
+        el.style.opacity = '';
+        bar.classList.remove('show');
+        bar.querySelectorAll('.dz').forEach(d => d.classList.remove('hot'));
+      }
+    };
     el.addEventListener('pointerdown', e => {
-      sx = e.clientX; sy = e.clientY; fired = false;
+      sx = e.clientX; sy = e.clientY;
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* synthetic events */ }
       timer = setTimeout(() => {
         timer = null;
-        fired = true;
+        armed = true;
         el._lpFired = true;
-        const snippet = it.text.length > 40 ? it.text.slice(0, 40) + '…' : it.text;
-        const alts = [];
-        if (it.compass) {
-          alts.push({ label: 'Remove from compass', onClick: () => {
-            it.compass = false; save(); rerender(); flash('Back in the archive.');
-          } });
-        } else {
-          if (it.priority || isGuest(it)) {
-            alts.push({ label: 'Back to archive', onClick: () => {
-              it.priority = null; it.guest = null; save(); rerender(); flash('Back in the archive.');
-            } });
-          }
-          alts.push({ label: '🧭 Make it a compass', onClick: () => tryCompass(it) });
-        }
-        showModal(snippet,
-          it.why ? `Your why: "${it.why}"` : '',
-          '✏️ Edit',
-          () => openEdit(it),
-          { alts });
-      }, 500);
+        el.classList.add('lifted');
+      }, 450);
     });
-    const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
     el.addEventListener('pointermove', e => {
-      if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancel();
+      const dist = Math.hypot(e.clientX - sx, e.clientY - sy);
+      if (!armed) {
+        if (timer && dist > 10) { clearTimeout(timer); timer = null; }
+        return;
+      }
+      if (!dragging && dist > 14) {
+        dragging = true;
+        const r = el.getBoundingClientRect();
+        clone = el.cloneNode(true);
+        clone.classList.add('dragclone');
+        clone.classList.remove('lifted');
+        clone.style.width = r.width + 'px';
+        offX = e.clientX - r.left;
+        offY = e.clientY - r.top;
+        document.body.appendChild(clone);
+        el.style.opacity = '0.35';
+        bar.classList.add('show');
+      }
+      if (dragging) {
+        clone.style.left = (e.clientX - offX) + 'px';
+        clone.style.top = (e.clientY - offY) + 'px';
+        const t = document.elementFromPoint(e.clientX, e.clientY);
+        const dz = t && t.closest ? t.closest('.dz') : null;
+        bar.querySelectorAll('.dz').forEach(d => d.classList.toggle('hot', d === dz));
+      }
     });
-    el.addEventListener('pointerup', cancel);
-    el.addEventListener('pointercancel', cancel);
+    el.addEventListener('pointerup', e => {
+      const wasArmed = armed, wasDragging = dragging;
+      let zone = null;
+      if (wasDragging) {
+        const t = document.elementFromPoint(e.clientX, e.clientY);
+        const dz = t && t.closest ? t.closest('.dz') : null;
+        zone = dz ? dz.dataset.zone : null;
+      }
+      reset();
+      if (wasDragging) { if (zone) moveTo(it, zone); }
+      else if (wasArmed) openOptions(it);
+    });
+    el.addEventListener('pointercancel', reset);
     el.addEventListener('contextmenu', e => e.preventDefault());
   }
   // after a long-press, the released tap must not flip the card's priority —
