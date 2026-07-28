@@ -157,6 +157,16 @@ forward (Pat: "need to be remembered on an irregular basis multiple times a week
   (Compass / My Five / Overflow / Archive). Works from main AND archive rows.
   Drops reuse the same friction modals (whys, limits) as taps.
 
+## Quick-route window + challenging overflow tone (v20, 2026-07-28)
+- After a single dump, a ~6s strip appears above the input: the fresh thought +
+  three buttons (Compass/Five/Overflow) with live counts, a shrinking timer line,
+  full lists shown greyed-out (that's the "informs me" part). Tapping routes with
+  the exact same friction rules; doing nothing leaves it in the archive.
+  Multiline dumps and imports skip the strip.
+- Overflow modals now CHALLENGE instead of just asking why (Pat: the pushback made
+  him realize "doesn't have to be now"): "Sure it can't wait?" / "Are you sure?
+  ... If it can wait, let it wait in the archive." / "The last spot. Really?"
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)

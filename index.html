@@ -119,6 +119,54 @@
   #sendBtn { background: #e2e8f0; color: #94a3b8; }
   #sendBtn.ready { background: var(--teal); color: #fff; }
 
+  #quickRow {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 8px 10px 11px;
+    margin-bottom: 8px;
+  }
+  #quickRow[hidden] { display: none; }
+  #quickTxt {
+    flex: 1;
+    font-size: 13px;
+    color: #475569;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .qbtn {
+    flex: none;
+    width: 46px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    padding: 4px 0 2px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.1;
+  }
+  .qbtn span { font-size: 17px; }
+  .qbtn small { font-size: 10px; color: var(--muted); }
+  .qbtn:disabled { opacity: 0.4; }
+  .qbtn:disabled small { color: var(--danger); }
+  #quickTimerWrap {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 3px;
+    height: 3px;
+    border-radius: 2px;
+    background: #f1f5f9;
+    overflow: hidden;
+  }
+  #quickTimerBar { height: 100%; width: 100%; background: var(--teal); }
   #dumpFlash {
     text-align: center;
     font-size: 13px;
@@ -520,7 +568,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v19</div>
+        <div class="version">v20</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -545,6 +593,13 @@
     <div id="guestList"></div>
 
     <div class="dock">
+      <div id="quickRow" hidden>
+        <div id="quickTxt"></div>
+        <button class="qbtn" id="qCompass"><span>🧭</span><small></small></button>
+        <button class="qbtn" id="qFive"><span>✋</span><small></small></button>
+        <button class="qbtn" id="qOver"><span>⏳</span><small></small></button>
+        <div id="quickTimerWrap"><div id="quickTimerBar"></div></div>
+      </div>
       <div id="dumpFlash">Into the archive. Gone.</div>
       <div class="inputrow">
         <textarea id="dumpInput" rows="1" placeholder="What's on your mind?"></textarea>
@@ -815,7 +870,56 @@
     sendBtn.classList.remove('ready');
     renderMain();
     flash(lines.length > 1 ? `${lines.length} thoughts archived.` : 'Into the archive. Gone.');
+    // single dump: a short window to grab it straight into a list
+    if (lines.length === 1) showQuick(items[0]); else hideQuick();
   }
+
+  // ---------- quick-route window: ~6s to send a fresh dump into a list ----------
+  let quickTimer = null, quickItem = null;
+  function updateQuickButtons() {
+    const defs = [
+      ['qCompass', compasses().length, 3],
+      ['qFive', marks(), MAX_MARKS],
+      ['qOver', guests().length, MAX_GUESTS]
+    ];
+    for (const [id, n, max] of defs) {
+      const b = $(id);
+      b.querySelector('small').textContent = `${n}/${max}`;
+      b.disabled = n >= max;
+    }
+  }
+  function showQuick(it) {
+    quickItem = it;
+    $('quickTxt').textContent = it.text;
+    updateQuickButtons();
+    $('quickRow').hidden = false;
+    const bar = $('quickTimerBar');
+    bar.style.transition = 'none';
+    bar.style.width = '100%';
+    requestAnimationFrame(() => {
+      bar.style.transition = 'width 6s linear';
+      bar.style.width = '0%';
+    });
+    clearTimeout(quickTimer);
+    quickTimer = setTimeout(hideQuick, 6000);
+  }
+  function hideQuick() {
+    clearTimeout(quickTimer);
+    quickTimer = null;
+    quickItem = null;
+    $('quickRow').hidden = true;
+  }
+  $('qCompass').addEventListener('click', () => {
+    const it = quickItem; hideQuick(); if (it) tryCompass(it);
+  });
+  $('qFive').addEventListener('click', () => {
+    const it = quickItem; hideQuick();
+    if (!it || marks() >= MAX_MARKS) return;
+    requestMark(it, () => { it.priority = 'light'; save(); rerender(); });
+  });
+  $('qOver').addEventListener('click', () => {
+    const it = quickItem; hideQuick(); if (it) tryGuest(it, null);
+  });
 
   // ---------- voice ----------
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -981,21 +1085,21 @@
       rerender();
       if ($('archiveScreen').classList.contains('active')) renderArchive();
     };
-    // overflow 1-3 cost a confirm tap, slots 4 and 5 a typed why — same principle as the five
+    // overflow challenges you: if it can wait, it should wait in the archive
     if (g < 3) {
-      showModal('Five is five.',
-        'Park it in the overflow? It expires after 30 hours on its own and cannot be extended.',
+      showModal("Sure it can't wait?",
+        'The overflow is for things that truly must happen in the next 30 hours. It expires on its own.',
         'Add to overflow', add);
     } else if (g === 3) {
-      showModal('Getting a lot.',
-        'The overflow is filling up. Make this one earn its spot.',
+      showModal('Are you sure?',
+        "Getting a lot. If it can wait, let it wait in the archive.",
         'Add to overflow', add,
-        { reason: 'Why do you want to add it to the overflow?' });
+        { reason: 'Why does it have to be now?' });
     } else {
-      showModal('The last overflow spot.',
+      showModal('The last spot. Really?',
         'After this one, nothing fits anymore.',
         'Add to overflow', add,
-        { reason: 'Why does it have to come along?' });
+        { reason: "Why can't it wait?" });
     }
   }
 
