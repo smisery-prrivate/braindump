@@ -572,7 +572,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v21</div>
+        <div class="version">v22</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1314,17 +1314,22 @@
       res => { if (res.reason) { it.text = res.reason; save(); rerender(); } },
       { edit: it.text });
   }
+  function uncompassDest(it) {
+    const prev = it.compassPrev;
+    if (prev && prev.priority && marks() < MAX_MARKS) return 'Back to my five';
+    if (prev && prev.guest && (Date.now() - prev.guest) < GUEST_MS && guests().length < MAX_GUESTS) return 'Back to overflow';
+    return 'Back to archive';
+  }
   function openOptions(it) {
     const snippet = it.text.length > 40 ? it.text.slice(0, 40) + '…' : it.text;
     const alts = [];
     if (it.compass) {
-      alts.push({ label: 'Remove from compass', onClick: () => uncompass(it) });
+      alts.push({ label: uncompassDest(it), onClick: () => uncompass(it) });
+    } else if (it.priority || isGuest(it)) {
+      alts.push({ label: 'Back to archive', onClick: () => {
+        it.priority = null; it.guest = null; save(); rerender(); flash('Back in the archive.');
+      } });
     } else {
-      if (it.priority || isGuest(it)) {
-        alts.push({ label: 'Back to archive', onClick: () => {
-          it.priority = null; it.guest = null; save(); rerender(); flash('Back in the archive.');
-        } });
-      }
       alts.push({ label: '🧭 Make it a compass', onClick: () => tryCompass(it) });
     }
     showModal(snippet,
@@ -1359,6 +1364,7 @@
     }
     if ($('archiveScreen').classList.contains('active')) renderArchive();
   }
+  let swallowNextClick = false;
   function attachLongPress(el, it) {
     let timer = null, armed = false, dragging = false, sx = 0, sy = 0, clone = null, offX = 0, offY = 0;
     const bar = $('dropbar');
@@ -1381,7 +1387,10 @@
         timer = null;
         armed = true;
         el._lpFired = true;
+        swallowNextClick = true;   // the release tap must not hit a modal button
         el.classList.add('lifted');
+        // options appear while still holding — dragging away closes them and moves instead
+        openOptions(it);
       }, 450);
     });
     el.addEventListener('pointermove', e => {
@@ -1391,6 +1400,7 @@
         return;
       }
       if (!dragging && dist > 14) {
+        $('modal').hidden = true;
         dragging = true;
         const r = el.getBoundingClientRect();
         clone = el.cloneNode(true);
@@ -1420,15 +1430,22 @@
         zone = dz ? dz.dataset.zone : null;
       }
       reset();
-      if (wasDragging) { if (zone) moveTo(it, zone); }
-      else if (wasArmed) openOptions(it);
+      if (wasDragging && zone) moveTo(it, zone);
+      // menu already opened on hold — releasing just leaves it on screen
     });
     el.addEventListener('pointercancel', reset);
     el.addEventListener('contextmenu', e => e.preventDefault());
   }
   // after a long-press, the released tap must not flip the card's priority —
   // document-level capture runs before any card listener, guaranteed
+  document.addEventListener('pointerdown', () => { swallowNextClick = false; }, true);
   document.addEventListener('click', e => {
+    if (swallowNextClick) {
+      swallowNextClick = false;
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
     const card = e.target.closest ? e.target.closest('.card, .arch') : null;
     if (card && card._lpFired) {
       card._lpFired = false;

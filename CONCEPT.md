@@ -167,6 +167,16 @@ forward (Pat: "need to be remembered on an irregular basis multiple times a week
   him realize "doesn't have to be now"): "Sure it can't wait?" / "Are you sure?
   ... If it can wait, let it wait in the archive." / "The last spot. Really?"
 
+## Dialog on hold + slimmer dialogs (v22, 2026-07-29)
+- The options dialog now opens WHILE holding (450ms), not on release. Dragging away
+  (>14px) closes it and switches seamlessly into drag & drop onto the four zones.
+  A swallow-next-click guard prevents the release tap from hitting a modal button.
+- Dialog contents per Pat: five/overflow cards = Edit + Back to archive only
+  (compass goes via drag now). Compass cards = Edit + a back button labeled with
+  the real destination ("Back to my five" / "Back to overflow" when the old spot
+  is still free, else "Back to archive") — keeps the v19 restore behavior.
+  Plain archive rows keep Edit + Make it a compass.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
