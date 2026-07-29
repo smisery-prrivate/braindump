@@ -572,7 +572,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v22</div>
+        <div class="version">v23</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1364,12 +1364,16 @@
     }
     if ($('archiveScreen').classList.contains('active')) renderArchive();
   }
+  // hold 450ms: card lifts, drag & drop is live · keep holding still until 2s: options dialog
+  const HOLD_MS = 450;
+  const MENU_MS = 2000;
   let swallowNextClick = false;
   function attachLongPress(el, it) {
-    let timer = null, armed = false, dragging = false, sx = 0, sy = 0, clone = null, offX = 0, offY = 0;
+    let timer = null, menuTimer = null, armed = false, dragging = false, sx = 0, sy = 0, clone = null, offX = 0, offY = 0;
     const bar = $('dropbar');
     const reset = () => {
       if (timer) { clearTimeout(timer); timer = null; }
+      if (menuTimer) { clearTimeout(menuTimer); menuTimer = null; }
       armed = false;
       el.classList.remove('lifted');
       if (dragging) {
@@ -1387,12 +1391,16 @@
         timer = null;
         armed = true;
         el._lpFired = true;
-        swallowNextClick = true;   // the release tap must not hit a modal button
+        swallowNextClick = true;   // the release tap must not hit anything by accident
         el.classList.add('lifted');
-        // options appear while still holding — dragging away closes them and moves instead
-        openOptions(it);
-      }, 450);
+        menuTimer = setTimeout(() => {
+          menuTimer = null;
+          if (!dragging) openOptions(it);
+        }, MENU_MS - HOLD_MS);
+      }, HOLD_MS);
     });
+    // while lifted, the browser must not turn finger movement into scrolling
+    el.addEventListener('touchmove', e => { if (armed) e.preventDefault(); }, { passive: false });
     el.addEventListener('pointermove', e => {
       const dist = Math.hypot(e.clientX - sx, e.clientY - sy);
       if (!armed) {
@@ -1400,6 +1408,7 @@
         return;
       }
       if (!dragging && dist > 14) {
+        if (menuTimer) { clearTimeout(menuTimer); menuTimer = null; }
         $('modal').hidden = true;
         dragging = true;
         const r = el.getBoundingClientRect();

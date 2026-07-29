@@ -167,6 +167,15 @@ forward (Pat: "need to be remembered on an irregular basis multiple times a week
   him realize "doesn't have to be now"): "Sure it can't wait?" / "Are you sure?
   ... If it can wait, let it wait in the archive." / "The last spot. Really?"
 
+## Two-stage hold + real touch fix (v23, 2026-07-29)
+Pat found drag never worked on the phone: the browser turned finger movement into
+SCROLLING (pointercancel) — mouse-based tests missed it. Fix: non-passive touchmove
+preventDefault while a card is lifted (touch-action stays auto, so normal scrolling
+is untouched). New timing per Pat: hold 450ms = lift, drag works immediately;
+keep holding still until 2s total = options dialog opens (Pat said "3s or so",
+started with 2s). Lesson: always test touch flows with real touch events
+(puppeteer hasTouch + touchscreen API), never only mouse.
+
 ## Dialog on hold + slimmer dialogs (v22, 2026-07-29)
 - The options dialog now opens WHILE holding (450ms), not on release. Dragging away
   (>14px) closes it and switches seamlessly into drag & drop onto the four zones.
