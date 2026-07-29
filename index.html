@@ -572,7 +572,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v24</div>
+        <div class="version">v25</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1364,9 +1364,9 @@
     }
     if ($('archiveScreen').classList.contains('active')) renderArchive();
   }
-  // hold 450ms: card lifts, drag & drop is live · keep holding still until 1.6s: options dialog
+  // hold 450ms: card lifts, drag & drop is live · keep holding still until 1.4s: options dialog
   const HOLD_MS = 450;
-  const MENU_MS = 1600;
+  const MENU_MS = 1400;
   let swallowNextClick = false;
   function attachLongPress(el, it) {
     let timer = null, menuTimer = null, armed = false, dragging = false, sx = 0, sy = 0, clone = null, offX = 0, offY = 0;
