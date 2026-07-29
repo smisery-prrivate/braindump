@@ -120,7 +120,11 @@
   #sendBtn.ready { background: var(--teal); color: #fff; }
 
   #quickRow {
-    position: relative;
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: calc(100% + 118px);
+    z-index: 6;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -128,7 +132,7 @@
     border: 1.5px solid #e2e8f0;
     border-radius: 14px;
     padding: 8px 10px 11px;
-    margin-bottom: 8px;
+    box-shadow: 0 10px 28px rgba(30,41,59,0.18);
   }
   #quickRow[hidden] { display: none; }
   #quickTxt {
@@ -568,7 +572,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v20</div>
+        <div class="version">v21</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
