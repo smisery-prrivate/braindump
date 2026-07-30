@@ -579,7 +579,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v26</div>
+        <div class="version">v27</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1409,7 +1409,24 @@
   }
   function attachLongPress(el, it) {
     let timer = null, menuTimer = null, armed = false, dragging = false, sx = 0, sy = 0, clone = null, offX = 0, offY = 0;
+    let lastX = 0, lastY = 0, scrolling = false;
     const bar = $('dropbar');
+    // dragging near the edges scrolls, so far-away sections are reachable
+    function autoScroll() {
+      if (!dragging) { scrolling = false; return; }
+      const h = window.innerHeight;
+      const barB = bar.getBoundingClientRect().bottom;
+      let dy = 0;
+      if (lastY > h - 110) dy = Math.min(16, (lastY - (h - 110)) / 4 + 5);
+      else if (lastY > barB + 4 && lastY < barB + 80) dy = -Math.min(16, ((barB + 80) - lastY) / 4 + 5);
+      if (dy) {
+        const inArchive = $('archiveScreen').classList.contains('active');
+        if (inArchive) $('archList').scrollTop += dy;
+        else window.scrollBy(0, dy);
+        highlightZone(zoneAt(lastX, lastY));
+      }
+      requestAnimationFrame(autoScroll);
+    }
     const reset = () => {
       if (timer) { clearTimeout(timer); timer = null; }
       if (menuTimer) { clearTimeout(menuTimer); menuTimer = null; }
@@ -1462,8 +1479,11 @@
         document.body.appendChild(clone);
         el.style.opacity = '0.35';
         bar.classList.add('show');
+        if (!scrolling) { scrolling = true; requestAnimationFrame(autoScroll); }
       }
       if (dragging) {
+        lastX = e.clientX;
+        lastY = e.clientY;
         clone.style.left = (e.clientX - offX) + 'px';
         clone.style.top = (e.clientY - offY) + 'px';
         highlightZone(zoneAt(e.clientX, e.clientY));
