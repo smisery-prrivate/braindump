@@ -357,6 +357,13 @@
     line-height: 1.6;
   }
   .dz.hot { border-color: var(--teal); background: #e6f7f4; color: var(--teal-dark); }
+  .drophot {
+    outline: 2px dashed var(--teal);
+    outline-offset: 4px;
+    border-radius: 12px;
+    background: rgba(13,148,136,0.06);
+    min-height: 34px;
+  }
   #spot {
     position: fixed;
     inset: 0;
@@ -572,7 +579,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v25</div>
+        <div class="version">v26</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1327,6 +1334,8 @@
       alts.push({ label: uncompassDest(it), onClick: () => uncompass(it) });
     } else if (it.priority || isGuest(it)) {
       alts.push({ label: 'Back to archive', onClick: () => {
+        // a deliberate return resets the one-overflow-life rule (only expiry keeps it spent)
+        if (isGuest(it)) it.guestUsed = false;
         it.priority = null; it.guest = null; save(); rerender(); flash('Back in the archive.');
       } });
     } else {
@@ -1338,10 +1347,12 @@
       () => openEdit(it),
       { alts });
   }
-  // drop a dragged card onto one of the four category zones
+  // drop a dragged card onto a category — dragging is deliberate, so no why-dialogs here,
+  // only hard limits speak up
   function moveTo(it, zone) {
     if (zone === 'archive') {
       if (!it.priority && !isGuest(it) && !it.compass) return;
+      if (isGuest(it)) it.guestUsed = false;  // deliberate return resets the overflow life
       it.priority = null; it.guest = null; it.compass = false; delete it.compassPrev;
       save(); rerender(); flash('Back in the archive.');
     } else if (zone === 'compass') {
@@ -1353,14 +1364,23 @@
         showModal('Five is five.', 'Remove one first — or drop it on Overflow.', 'Got it', null);
         return;
       }
-      requestMark(it, () => {
-        it.guest = null; it.compass = false; delete it.compassPrev;
-        it.priority = 'light';
-        save(); rerender();
-      });
+      it.guest = null; it.compass = false; delete it.compassPrev;
+      it.priority = 'light';
+      save(); rerender();
     } else if (zone === 'overflow') {
       if (isGuest(it)) return;
-      tryGuest(it, null);
+      if (it.guestUsed) {
+        showModal('One overflow life.', 'This thought already had its overflow spot. Into the five — or dump it again.', 'Got it', null);
+        return;
+      }
+      if (guests().length >= MAX_GUESTS) {
+        showModal('All full.', 'Knock something off the list before clogging your mental load.', 'Got it', null);
+        return;
+      }
+      it.priority = null; it.compass = false; delete it.compassPrev;
+      it.guest = Date.now();
+      it.guestUsed = true;
+      save(); rerender();
     }
     if ($('archiveScreen').classList.contains('active')) renderArchive();
   }
@@ -1368,6 +1388,25 @@
   const HOLD_MS = 450;
   const MENU_MS = 1400;
   let swallowNextClick = false;
+  // where is the pointer? bar cells count, and so do the visible sections themselves
+  function zoneAt(x, y) {
+    const t = document.elementFromPoint(x, y);
+    if (!t || !t.closest) return null;
+    const dz = t.closest('.dz');
+    if (dz) return dz.dataset.zone;
+    if (t.closest('#compassList, .compasshead')) return 'compass';
+    if (t.closest('#fiveList, .fivehead, #fiveEmpty')) return 'five';
+    if (t.closest('#guestList, .guesthead')) return 'overflow';
+    if (t.closest('#openArchiveBtn')) return 'archive';
+    return null;
+  }
+  const SECTION_ELS = { compass: 'compassList', five: 'fiveList', overflow: 'guestList' };
+  function highlightZone(zone) {
+    $('dropbar').querySelectorAll('.dz').forEach(d => d.classList.toggle('hot', d.dataset.zone === zone));
+    for (const [z, id] of Object.entries(SECTION_ELS)) {
+      $(id).classList.toggle('drophot', z === zone);
+    }
+  }
   function attachLongPress(el, it) {
     let timer = null, menuTimer = null, armed = false, dragging = false, sx = 0, sy = 0, clone = null, offX = 0, offY = 0;
     const bar = $('dropbar');
@@ -1376,13 +1415,11 @@
       if (menuTimer) { clearTimeout(menuTimer); menuTimer = null; }
       armed = false;
       el.classList.remove('lifted');
-      if (dragging) {
-        dragging = false;
-        if (clone) { clone.remove(); clone = null; }
-        el.style.opacity = '';
-        bar.classList.remove('show');
-        bar.querySelectorAll('.dz').forEach(d => d.classList.remove('hot'));
-      }
+      dragging = false;
+      if (clone) { clone.remove(); clone = null; }
+      el.style.opacity = '';
+      bar.classList.remove('show');
+      highlightZone(null);
     };
     el.addEventListener('pointerdown', e => {
       sx = e.clientX; sy = e.clientY;
@@ -1393,9 +1430,13 @@
         el._lpFired = true;
         swallowNextClick = true;   // the release tap must not hit anything by accident
         el.classList.add('lifted');
+        bar.classList.add('show'); // drop targets appear right away — drag is live now
         menuTimer = setTimeout(() => {
           menuTimer = null;
-          if (!dragging) openOptions(it);
+          if (!dragging) {
+            bar.classList.remove('show');
+            openOptions(it);
+          }
         }, MENU_MS - HOLD_MS);
       }, HOLD_MS);
     });
@@ -1425,19 +1466,12 @@
       if (dragging) {
         clone.style.left = (e.clientX - offX) + 'px';
         clone.style.top = (e.clientY - offY) + 'px';
-        const t = document.elementFromPoint(e.clientX, e.clientY);
-        const dz = t && t.closest ? t.closest('.dz') : null;
-        bar.querySelectorAll('.dz').forEach(d => d.classList.toggle('hot', d === dz));
+        highlightZone(zoneAt(e.clientX, e.clientY));
       }
     });
     el.addEventListener('pointerup', e => {
-      const wasArmed = armed, wasDragging = dragging;
-      let zone = null;
-      if (wasDragging) {
-        const t = document.elementFromPoint(e.clientX, e.clientY);
-        const dz = t && t.closest ? t.closest('.dz') : null;
-        zone = dz ? dz.dataset.zone : null;
-      }
+      const wasDragging = dragging;
+      const zone = wasDragging ? zoneAt(e.clientX, e.clientY) : null;
       reset();
       if (wasDragging && zone) moveTo(it, zone);
       // menu already opened on hold — releasing just leaves it on screen

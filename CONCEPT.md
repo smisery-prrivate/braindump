@@ -167,6 +167,18 @@ forward (Pat: "need to be remembered on an irregular basis multiple times a week
   him realize "doesn't have to be now"): "Sure it can't wait?" / "Are you sure?
   ... If it can wait, let it wait in the archive." / "The last spot. Really?"
 
+## Drag polish + archive-return fix (v26, 2026-07-30)
+- Drop bar now appears already at LIFT (450ms) — you see the targets before moving;
+  the options dialog follows at 1.4s and hides the bar.
+- The visible sections themselves are drop targets too (compass/five/overflow lists
+  highlight with a dashed outline), not just the bar cells.
+- Drag moves are deliberate: NO why/confirm dialogs on drop — only hard limits speak
+  (five full, overflow full, one-overflow-life).
+- Bug Pat found: a returned overflow item could never be re-prioritized when the five
+  were full (guestUsed + full five blocked every path). Rule refined: a DELIBERATE
+  return to archive (dialog or drag) resets the overflow life; only real expiry
+  keeps it spent.
+
 ## Two-stage hold + real touch fix (v23, 2026-07-29)
 Pat found drag never worked on the phone: the browser turned finger movement into
 SCROLLING (pointercancel) — mouse-based tests missed it. Fix: non-passive touchmove
