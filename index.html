@@ -384,6 +384,7 @@
     width: 100%;
   }
   .spotlabel { font-size: 13px; letter-spacing: 0.12em; font-weight: 700; color: #6366f1; text-transform: uppercase; }
+  .spotsub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
   #spotText { font-size: 24px; font-weight: 700; color: #312e81; margin-top: 14px; line-height: 1.35; word-break: break-word; }
   .spothint { font-size: 12px; color: #94a3b8; margin-top: 18px; }
   #fiveEmpty {
@@ -579,7 +580,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v27</div>
+        <div class="version">v28</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -647,7 +648,8 @@
 
   <div id="spot" hidden>
     <div class="spotcard">
-      <div class="spotlabel">🧭 Compass</div>
+      <div class="spotlabel">🧭 Compass reminder</div>
+      <div class="spotsub">one of your three standing things</div>
       <div id="spotText"></div>
       <div class="spothint">tap anywhere to dismiss</div>
     </div>
@@ -853,7 +855,10 @@
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); dump(); }
   });
-  sendBtn.addEventListener('click', dump);
+  // fire on pointerdown and keep the textarea focused — a click would first blur the
+  // field, collapse the keyboard and shift the button away from under the finger
+  sendBtn.addEventListener('pointerdown', e => { e.preventDefault(); dump(); });
+  sendBtn.addEventListener('click', e => e.preventDefault());
 
   let flashTimer;
   function addThoughts(texts) {
@@ -920,15 +925,20 @@
     quickItem = null;
     $('quickRow').hidden = true;
   }
-  $('qCompass').addEventListener('click', () => {
+  // same pointerdown pattern as the send button — taps while the keyboard is
+  // collapsing must not miss
+  $('qCompass').addEventListener('pointerdown', e => {
+    e.preventDefault();
     const it = quickItem; hideQuick(); if (it) tryCompass(it);
   });
-  $('qFive').addEventListener('click', () => {
+  $('qFive').addEventListener('pointerdown', e => {
+    e.preventDefault();
     const it = quickItem; hideQuick();
     if (!it || marks() >= MAX_MARKS) return;
     requestMark(it, () => { it.priority = 'light'; save(); rerender(); });
   });
-  $('qOver').addEventListener('click', () => {
+  $('qOver').addEventListener('pointerdown', e => {
+    e.preventDefault();
     const it = quickItem; hideQuick(); if (it) tryGuest(it, null);
   });
 
