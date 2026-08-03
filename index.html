@@ -230,6 +230,18 @@
     padding: 8px 2px 0;
   }
   .backuprow span { flex: 1; }
+  #syncEmail {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 13px;
+    background: #fff;
+    outline: none;
+  }
+  #syncEmail:focus { border-color: var(--teal); }
   .backuprow button {
     border: 1px solid #e2e8f0;
     background: #fff;
@@ -580,7 +592,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v29</div>
+        <div class="version">v30</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -672,6 +684,12 @@
     <div id="limitMsg">Five is five. Remove one first.</div>
     <div id="archList"></div>
     <div id="archEmpty" hidden>Empty. Go dump.</div>
+    <div class="backuprow" id="syncRow" hidden>
+      <span id="syncHint"></span>
+      <input id="syncEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com">
+      <button id="syncSend">🔄 Enable sync</button>
+      <button id="syncOff" hidden>Sign out</button>
+    </div>
     <div class="backuprow">
       <span id="backupHint"></span>
       <button id="backupBtn">💾 Save backup</button>
@@ -682,6 +700,7 @@
   </section>
 
 </div>
+<script src="config.js"></script>
 <script>
 (() => {
   'use strict';
@@ -700,14 +719,20 @@
   const $ = id => document.getElementById(id);
 
   // Guest status pauses deletion but never resets the clock.
+  // Expiry marks a tombstone (deleted: true) so other devices learn about it;
+  // tombstones themselves are purged after 60 days.
   function purgeReal() {
     const now = Date.now();
     let changed = false;
     for (const it of items) {
       if (it.guest && (now - it.guest) >= GUEST_MS) { it.guest = null; changed = true; }
+      if (!it.deleted && !it.priority && !it.guest && !it.compass && (now - it.created) >= EXPIRE_DAYS * DAY) {
+        it.deleted = true;
+        changed = true;
+      }
     }
     const before = items.length;
-    items = items.filter(it => it.priority || it.guest || it.compass || (now - it.created) < EXPIRE_DAYS * DAY);
+    items = items.filter(it => !(it.deleted && (now - (it.updated_at || it.created)) > 60 * DAY));
     if (items.length !== before) changed = true;
     if (changed) save();
     return changed;
@@ -715,10 +740,33 @@
   function load() {
     try { items = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); }
     catch (e) { items = []; }
+    for (const it of items) if (!it.updated_at) it.updated_at = it.created;
+    rebuildSnap();
     purgeReal();
     save();
   }
+  // save() stamps updated_at on every item that actually changed (diff vs snapshot) —
+  // one central place instead of touching every mutation site; drives sync LWW.
+  let snap = {};
+  function sigOf(it) {
+    const c = Object.assign({}, it);
+    delete c.updated_at;
+    return JSON.stringify(c);
+  }
+  function rebuildSnap() {
+    snap = {};
+    for (const it of items) snap[it.id] = sigOf(it);
+  }
   function save() {
+    const now = Date.now();
+    for (const it of items) {
+      const s = sigOf(it);
+      if (snap[it.id] !== s) { it.updated_at = now; snap[it.id] = s; }
+    }
+    saveLocal();
+    scheduleSync();
+  }
+  function saveLocal() {
     localStorage.setItem(STORE_KEY, JSON.stringify(items));
     mirror();
   }
@@ -741,6 +789,8 @@
         get.onsuccess = () => {
           if (Array.isArray(get.result) && get.result.length) {
             items = get.result;
+            for (const it of items) if (!it.updated_at) it.updated_at = it.created;
+            rebuildSnap();
             purgeReal();
             localStorage.setItem(STORE_KEY, JSON.stringify(items));
             renderMain();
@@ -753,10 +803,11 @@
     };
   }
   const age = it => Date.now() - it.created;
-  const isGuest = it => !!it.guest && (Date.now() - it.guest) < GUEST_MS;
+  const alive = () => items.filter(it => !it.deleted);
+  const isGuest = it => !it.deleted && !!it.guest && (Date.now() - it.guest) < GUEST_MS;
   const expired = it => !it.priority && !isGuest(it) && !it.compass && age(it) >= EXPIRE_DAYS * DAY;
-  const compasses = () => items.filter(i => i.compass);
-  const marks = () => items.filter(it => it.priority).length;
+  const compasses = () => items.filter(i => !i.deleted && i.compass);
+  const marks = () => items.filter(it => !it.deleted && it.priority).length;
   const guests = () => items.filter(isGuest);
   const guestHoursLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_MS - Date.now()) / 3600000));
   const guestOpacity = it => Math.max(0.35, 1 - 0.65 * ((Date.now() - it.guest) / GUEST_MS));
@@ -786,7 +837,7 @@
 
   // ---------- main screen ----------
   function renderMain() {
-    $('count').textContent = items.length ? `${items.length} in archive` : 'Archive';
+    $('count').textContent = alive().length ? `${alive().length} in archive` : 'Archive';
 
     const cs = compasses();
     const clist = $('compassList');
@@ -802,7 +853,7 @@
       clist.appendChild(el);
     }
     $('compassHead').hidden = cs.length === 0;
-    const five = items.filter(it => it.priority)
+    const five = items.filter(it => !it.deleted && it.priority)
       .sort((a, b) => (a.priority === b.priority) ? b.created - a.created : (a.priority === 'dark' ? -1 : 1));
     const list = $('fiveList');
     list.innerHTML = '';
@@ -1004,7 +1055,7 @@
   function renderArchive() {
     const list = $('archList');
     list.innerHTML = '';
-    const visible = items.filter(it => !expired(it));
+    const visible = items.filter(it => !it.deleted && !expired(it));
     for (const it of visible.slice().sort((a, b) => b.created - a.created)) {
       const el = document.createElement('div');
       el.className = 'arch' + (it.compass ? ' compass' : (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : '')));
@@ -1025,6 +1076,7 @@
     const g = guests().length;
     $('archCount').textContent = `${marks()} / ${MAX_MARKS} picked` + (g ? ` · ${g} overflow` : '');
     renderBackupHint();
+    renderSyncRow();
   }
 
   // single tap: toggle light/off · double tap: essential (dark)
@@ -1271,8 +1323,10 @@
       for (const it of arr) {
         if (it && it.id && typeof it.text === 'string' && !known.has(it.id)) {
           items.push({ id: it.id, text: it.text, created: +it.created || Date.now(),
+            updated_at: +it.updated_at || +it.created || Date.now(),
             priority: it.priority === 'dark' || it.priority === 'light' ? it.priority : null,
             guest: +it.guest || null, guestUsed: !!it.guestUsed, compass: !!it.compass,
+            deleted: !!it.deleted,
             why: typeof it.why === 'string' ? it.why : undefined });
           n++;
         }
@@ -1298,11 +1352,10 @@
     });
     return b;
   }
+  // deletes are tombstones so they propagate to other devices; undo just unmarks
   function deleteItem(it) {
-    const idx = items.indexOf(it);
-    if (idx < 0) return;
-    items.splice(idx, 1);
-    lastDeleted = { it, idx };
+    it.deleted = true;
+    lastDeleted = it;
     save();
     rerender();
     const t = $('undoToast');
@@ -1312,7 +1365,7 @@
   }
   $('undoBtn').addEventListener('click', () => {
     if (lastDeleted) {
-      items.splice(Math.min(lastDeleted.idx, items.length), 0, lastDeleted.it);
+      lastDeleted.deleted = false;
       save();
       lastDeleted = null;
       rerender();
@@ -1548,13 +1601,181 @@
     if (changed && $('archiveScreen').classList.contains('active')) renderArchive();
   }
   setInterval(tick, 60000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); syncNow(); } });
+
+  // ---------- sync (v2): local-first, optional account via Supabase ----------
+  const SYNC = window.BR_SYNC || null;
+  const SESSION_KEY = 'braindump.session';
+  let session = null;
+  try { session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch (e) { session = null; }
+
+  function jwtPayload(token) {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  }
+  function adoptSession(d) {
+    const p = jwtPayload(d.access_token);
+    session = {
+      access_token: d.access_token,
+      refresh_token: d.refresh_token,
+      expires_at: p.exp,
+      email: p.email,
+      uid: p.sub
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }
+  function dropSession() {
+    session = null;
+    localStorage.removeItem(SESSION_KEY);
+  }
+  async function ensureSession() {
+    if (!SYNC || !session) return false;
+    if (Date.now() / 1000 < session.expires_at - 60) return true;
+    try {
+      const r = await fetch(SYNC.url + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { apikey: SYNC.key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: session.refresh_token })
+      });
+      if (!r.ok) { if (r.status === 400 || r.status === 401) dropSession(); return false; }
+      adoptSession(await r.json());
+      return true;
+    } catch (e) { return false; }  // offline — try again later
+  }
+  const restHeaders = () => ({
+    apikey: SYNC.key,
+    Authorization: 'Bearer ' + session.access_token,
+    'Content-Type': 'application/json'
+  });
+  const toRow = it => ({
+    id: it.id,
+    text: it.text,
+    created: it.created,
+    updated_at: it.updated_at || it.created,
+    priority: it.priority || null,
+    guest: it.guest || null,
+    guest_used: !!it.guestUsed,
+    compass: !!it.compass,
+    compass_prev: it.compassPrev || null,
+    why: it.why || null,
+    deleted: !!it.deleted
+  });
+  const fromRow = r => ({
+    id: r.id,
+    text: r.text,
+    created: +r.created,
+    updated_at: +r.updated_at,
+    priority: r.priority || null,
+    guest: r.guest ? +r.guest : null,
+    guestUsed: !!r.guest_used,
+    compass: !!r.compass,
+    compassPrev: r.compass_prev || undefined,
+    why: r.why || undefined,
+    deleted: !!r.deleted
+  });
+
+  let syncTimer = null, syncing = false;
+  function scheduleSync() {
+    if (!SYNC || !session) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncNow, 1500);
+  }
+  async function syncNow() {
+    if (!SYNC || !session) return;
+    if (syncing) { scheduleSync(); return; }
+    syncing = true;
+    try {
+      if (!(await ensureSession())) { renderSyncRow(); return; }
+      const lsKey = 'braindump.lastSync.' + session.uid;
+      const last = +localStorage.getItem(lsKey) || 0;
+      // pull newer rows, merge per item: newest updated_at wins
+      const res = await fetch(`${SYNC.url}/rest/v1/thoughts?select=*&updated_at=gt.${last}&order=updated_at.asc`,
+        { headers: restHeaders() });
+      if (!res.ok) return;
+      const rows = await res.json();
+      let maxSeen = last, changedLocal = false;
+      for (const r of rows) {
+        maxSeen = Math.max(maxSeen, +r.updated_at);
+        const inc = fromRow(r);
+        const idx = items.findIndex(i => i.id === inc.id);
+        if (idx < 0) {
+          items.push(inc);
+          snap[inc.id] = sigOf(inc);
+          changedLocal = true;
+        } else if (inc.updated_at > (items[idx].updated_at || items[idx].created)) {
+          items[idx] = inc;
+          snap[inc.id] = sigOf(inc);
+          changedLocal = true;
+        }
+      }
+      // push everything that changed locally since the last sync
+      const dirty = items.filter(i => (i.updated_at || 0) > last).map(toRow);
+      if (dirty.length) {
+        const r2 = await fetch(`${SYNC.url}/rest/v1/thoughts?on_conflict=user_id%2Cid`, {
+          method: 'POST',
+          headers: Object.assign(restHeaders(), { Prefer: 'resolution=merge-duplicates' }),
+          body: JSON.stringify(dirty)
+        });
+        if (!r2.ok) return;
+        for (const d of dirty) maxSeen = Math.max(maxSeen, d.updated_at);
+      }
+      localStorage.setItem(lsKey, maxSeen + '');
+      if (changedLocal) {
+        saveLocal();
+        rerender();
+      }
+      renderSyncRow();
+    } catch (e) {
+      /* offline or transient — next save/focus retries */
+    } finally {
+      syncing = false;
+    }
+  }
+  async function sendMagicLink(email) {
+    const redirect = encodeURIComponent(location.origin + location.pathname);
+    const r = await fetch(`${SYNC.url}/auth/v1/otp?redirect_to=${redirect}`, {
+      method: 'POST',
+      headers: { apikey: SYNC.key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, create_user: true })
+    });
+    return r.ok;
+  }
+  function renderSyncRow() {
+    if (!SYNC) { $('syncRow').hidden = true; return; }
+    $('syncRow').hidden = false;
+    const signedIn = !!session;
+    $('syncEmail').hidden = signedIn;
+    $('syncSend').hidden = signedIn;
+    $('syncOff').hidden = !signedIn;
+    $('syncHint').textContent = signedIn ? 'Sync on · ' + (session.email || '') : 'Sync across devices:';
+  }
+  $('syncSend').addEventListener('click', async () => {
+    const email = $('syncEmail').value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('syncHint').textContent = 'Enter a valid email.'; return; }
+    $('syncHint').textContent = 'Sending…';
+    const ok = await sendMagicLink(email);
+    $('syncHint').textContent = ok ? 'Magic link sent — check your email.' : 'Could not send. Try again later.';
+  });
+  $('syncOff').addEventListener('click', () => {
+    dropSession();
+    renderSyncRow();
+  });
 
   // ---------- boot ----------
   load();
   if (history.state && history.state.sub) history.replaceState(null, '');
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   openMirror();
+  // magic-link return: session tokens arrive in the URL hash, never on the server
+  if (location.hash.includes('access_token=')) {
+    try {
+      const q = new URLSearchParams(location.hash.slice(1));
+      if (q.get('access_token') && q.get('refresh_token')) {
+        adoptSession({ access_token: q.get('access_token'), refresh_token: q.get('refresh_token') });
+        setTimeout(() => flash('Sync enabled.'), 300);
+      }
+    } catch (e) { /* malformed hash — ignore */ }
+    history.replaceState(null, '', location.pathname);
+  }
   // #import=<urlencoded JSON array> — hash never reaches the server, thoughts stay private
   if (location.hash.startsWith('#import=')) {
     try {
@@ -1571,6 +1792,7 @@
   }
   renderMain();
   maybeSpotlight();
+  syncNow();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js');
   }
