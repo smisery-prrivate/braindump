@@ -592,7 +592,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v30</div>
+        <div class="version">v31</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1502,6 +1502,9 @@
       highlightZone(null);
     };
     el.addEventListener('pointerdown', e => {
+      // presses that start on the check button belong to the button — capturing the
+      // pointer here would re-target the mouse click onto the card (prioritize!)
+      if (e.target && e.target.closest && e.target.closest('.donebtn')) return;
       sx = e.clientX; sy = e.clientY;
       try { el.setPointerCapture(e.pointerId); } catch (err) { /* synthetic events */ }
       timer = setTimeout(() => {
@@ -1525,8 +1528,18 @@
     el.addEventListener('pointermove', e => {
       const dist = Math.hypot(e.clientX - sx, e.clientY - sy);
       if (!armed) {
-        if (timer && dist > 10) { clearTimeout(timer); timer = null; }
-        return;
+        // mouse users drag instantly — no hold needed (no scroll conflict on desktop)
+        if (e.pointerType === 'mouse' && e.buttons === 1 && timer && dist > 8) {
+          clearTimeout(timer); timer = null;
+          armed = true;
+          el._lpFired = true;
+          swallowNextClick = true;
+          el.classList.add('lifted');
+          bar.classList.add('show');
+        } else {
+          if (timer && dist > 10) { clearTimeout(timer); timer = null; }
+          return;
+        }
       }
       if (!dragging && dist > 14) {
         if (menuTimer) { clearTimeout(menuTimer); menuTimer = null; }
