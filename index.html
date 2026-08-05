@@ -592,7 +592,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v32</div>
+        <div class="version">v33</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1704,7 +1704,9 @@
     syncing = true;
     try {
       if (!(await ensureSession())) { renderSyncRow(); return; }
-      const lsKey = 'braindump.lastSync.' + session.uid;
+      // lastSync2: cursor key renamed once in v33 to force a one-time full re-pull
+      // (v30-v32 could strand old-stamped rows below every device's cursor)
+      const lsKey = 'braindump.lastSync2.' + session.uid;
       const last = +localStorage.getItem(lsKey) || 0;
       // pull newer rows, merge per item: newest updated_at wins
       const res = await fetch(`${SYNC.url}/rest/v1/thoughts?select=*&updated_at=gt.${last}&order=updated_at.asc`,
@@ -1790,6 +1792,11 @@
       const q = new URLSearchParams(location.hash.slice(1));
       if (q.get('access_token') && q.get('refresh_token')) {
         adoptSession({ access_token: q.get('access_token'), refresh_token: q.get('refresh_token') });
+        // adopt the local stock: stamp everything "now" so migrated thoughts with old
+        // created-dates are visible to every other device's sync window
+        const now = Date.now();
+        for (const it of items) { it.updated_at = now; snap[it.id] = sigOf(it); }
+        saveLocal();
         setTimeout(() => flash('Sync enabled.'), 300);
       }
     } catch (e) { /* malformed hash — ignore */ }
