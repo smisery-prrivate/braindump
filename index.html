@@ -592,7 +592,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v31</div>
+        <div class="version">v32</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -725,7 +725,13 @@
     const now = Date.now();
     let changed = false;
     for (const it of items) {
-      if (it.guest && (now - it.guest) >= GUEST_MS) { it.guest = null; changed = true; }
+      // an expired overflow slot drops back into the archive with a FRESH 30-day
+      // clock — falling out of the overflow must not mean instant deletion
+      if (it.guest && (now - it.guest) >= GUEST_MS) {
+        it.guest = null;
+        it.created = now;
+        changed = true;
+      }
       if (!it.deleted && !it.priority && !it.guest && !it.compass && (now - it.created) >= EXPIRE_DAYS * DAY) {
         it.deleted = true;
         changed = true;
