@@ -613,7 +613,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v34</div>
+        <div class="version">v35</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1751,7 +1751,8 @@
     vault: !!r.vault
   });
 
-  let syncTimer = null, syncing = false;
+  let syncTimer = null, syncing = false, syncState = '', schemaLacksVault = false;
+  function setSyncState(s) { syncState = s; renderSyncRow(); }
   function scheduleSync() {
     if (!SYNC || !session) return;
     clearTimeout(syncTimer);
@@ -1770,7 +1771,7 @@
       // pull newer rows, merge per item: newest updated_at wins
       const res = await fetch(`${SYNC.url}/rest/v1/thoughts?select=*&updated_at=gt.${last}&order=updated_at.asc`,
         { headers: restHeaders() });
-      if (!res.ok) return;
+      if (!res.ok) { setSyncState('error'); return; }
       const rows = await res.json();
       let maxSeen = last, changedLocal = false;
       for (const r of rows) {
@@ -1788,24 +1789,36 @@
         }
       }
       // push everything that changed locally since the last sync
-      const dirty = items.filter(i => (i.updated_at || 0) > last).map(toRow);
+      let dirty = items.filter(i => (i.updated_at || 0) > last).map(toRow);
+      if (schemaLacksVault) dirty = dirty.map(r => { const c = Object.assign({}, r); delete c.vault; return c; });
       if (dirty.length) {
-        const r2 = await fetch(`${SYNC.url}/rest/v1/thoughts?on_conflict=user_id%2Cid`, {
+        const push = rows => fetch(`${SYNC.url}/rest/v1/thoughts?on_conflict=user_id%2Cid`, {
           method: 'POST',
           headers: Object.assign(restHeaders(), { Prefer: 'resolution=merge-duplicates' }),
-          body: JSON.stringify(dirty)
+          body: JSON.stringify(rows)
         });
-        if (!r2.ok) return;
+        let r2 = await push(dirty);
+        if (!r2.ok) {
+          const err = await r2.text();
+          // schema behind (vault column missing)? keep syncing everything else
+          if (/vault/.test(err)) {
+            schemaLacksVault = true;
+            dirty = dirty.map(r => { const c = Object.assign({}, r); delete c.vault; return c; });
+            r2 = await push(dirty);
+          }
+          if (!r2.ok) { setSyncState('error'); return; }
+        }
         for (const d of dirty) maxSeen = Math.max(maxSeen, d.updated_at);
       }
       localStorage.setItem(lsKey, maxSeen + '');
+      localStorage.setItem('braindump.lastOk.' + session.uid, Date.now() + '');
       if (changedLocal) {
         saveLocal();
         rerender();
       }
-      renderSyncRow();
+      setSyncState('ok');
     } catch (e) {
-      /* offline or transient — next save/focus retries */
+      setSyncState('offline');   // no connection — next save/focus retries
     } finally {
       syncing = false;
     }
@@ -1826,7 +1839,14 @@
     $('syncEmail').hidden = signedIn;
     $('syncSend').hidden = signedIn;
     $('syncOff').hidden = !signedIn;
-    $('syncHint').textContent = signedIn ? 'Sync on · ' + (session.email || '') : 'Sync across devices:';
+    if (!signedIn) { $('syncHint').textContent = 'Sync across devices:'; return; }
+    const okAt = +localStorage.getItem('braindump.lastOk.' + session.uid) || 0;
+    const mins = okAt ? Math.floor((Date.now() - okAt) / 60000) : null;
+    const when = okAt ? (mins < 1 ? 'just now' : mins < 60 ? mins + ' min ago' : Math.floor(mins / 60) + ' h ago') : 'never';
+    const label = syncState === 'error' ? '⚠️ Sync failed'
+      : syncState === 'offline' ? '⏸ Offline'
+      : '✓ Synced';
+    $('syncHint').textContent = `${label} · ${when}`;
   }
   $('syncSend').addEventListener('click', async () => {
     const email = $('syncEmail').value.trim();
