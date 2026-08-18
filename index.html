@@ -230,6 +230,27 @@
     padding: 8px 2px 0;
   }
   .backuprow span { flex: 1; }
+  .vaultwrap { text-align: center; margin-top: 2px; }
+  #vaultToggle { font-size: 13px; }
+  #vaultList {
+    text-align: left;
+    max-height: 220px;
+    overflow-y: auto;
+    border-top: 1px dashed #e2e8f0;
+    padding: 8px 4px 4px;
+    margin-top: 2px;
+  }
+  .vaultrow {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    font-size: 13px;
+    color: #94a3b8;
+    padding: 4px 2px;
+  }
+  .vaultrow .txt { flex: 1; word-break: break-word; }
+  .vaultrow .when { flex: none; font-size: 11px; color: #cbd5e1; white-space: nowrap; }
+  #vaultEmpty { font-size: 12px; color: var(--muted); text-align: center; padding: 8px; }
   #syncEmail {
     flex: 1;
     min-width: 0;
@@ -592,7 +613,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v33</div>
+        <div class="version">v34</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -696,6 +717,10 @@
       <button id="restoreBtn">Restore</button>
       <input id="restoreFile" type="file" accept="application/json,.json" hidden>
     </div>
+    <div class="vaultwrap">
+      <button class="ghost" id="vaultToggle">🗄 Vault</button>
+      <div id="vaultList" hidden></div>
+    </div>
     <button class="bigbtn" id="closeBtn">Lock it</button>
   </section>
 
@@ -732,8 +757,8 @@
         it.created = now;
         changed = true;
       }
-      if (!it.deleted && !it.priority && !it.guest && !it.compass && (now - it.created) >= EXPIRE_DAYS * DAY) {
-        it.deleted = true;
+      if (!it.deleted && !it.vault && !it.priority && !it.guest && !it.compass && (now - it.created) >= EXPIRE_DAYS * DAY) {
+        it.vault = true;   // faded thoughts rest in the vault — a quiet list, not a delete
         changed = true;
       }
     }
@@ -809,11 +834,12 @@
     };
   }
   const age = it => Date.now() - it.created;
-  const alive = () => items.filter(it => !it.deleted);
-  const isGuest = it => !it.deleted && !!it.guest && (Date.now() - it.guest) < GUEST_MS;
+  const alive = () => items.filter(it => !it.deleted && !it.vault);
+  const vaulted = () => items.filter(it => !it.deleted && it.vault);
+  const isGuest = it => !it.deleted && !it.vault && !!it.guest && (Date.now() - it.guest) < GUEST_MS;
   const expired = it => !it.priority && !isGuest(it) && !it.compass && age(it) >= EXPIRE_DAYS * DAY;
-  const compasses = () => items.filter(i => !i.deleted && i.compass);
-  const marks = () => items.filter(it => !it.deleted && it.priority).length;
+  const compasses = () => items.filter(i => !i.deleted && !i.vault && i.compass);
+  const marks = () => items.filter(it => !it.deleted && !it.vault && it.priority).length;
   const guests = () => items.filter(isGuest);
   const guestHoursLeft = it => Math.max(1, Math.ceil((it.guest + GUEST_MS - Date.now()) / 3600000));
   const guestOpacity = it => Math.max(0.35, 1 - 0.65 * ((Date.now() - it.guest) / GUEST_MS));
@@ -859,7 +885,7 @@
       clist.appendChild(el);
     }
     $('compassHead').hidden = cs.length === 0;
-    const five = items.filter(it => !it.deleted && it.priority)
+    const five = items.filter(it => !it.deleted && !it.vault && it.priority)
       .sort((a, b) => (a.priority === b.priority) ? b.created - a.created : (a.priority === 'dark' ? -1 : 1));
     const list = $('fiveList');
     list.innerHTML = '';
@@ -1061,7 +1087,7 @@
   function renderArchive() {
     const list = $('archList');
     list.innerHTML = '';
-    const visible = items.filter(it => !it.deleted && !expired(it));
+    const visible = items.filter(it => !it.deleted && !it.vault && !expired(it));
     for (const it of visible.slice().sort((a, b) => b.created - a.created)) {
       const el = document.createElement('div');
       el.className = 'arch' + (it.compass ? ' compass' : (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : '')));
@@ -1332,7 +1358,7 @@
             updated_at: +it.updated_at || +it.created || Date.now(),
             priority: it.priority === 'dark' || it.priority === 'light' ? it.priority : null,
             guest: +it.guest || null, guestUsed: !!it.guestUsed, compass: !!it.compass,
-            deleted: !!it.deleted,
+            deleted: !!it.deleted, vault: !!it.vault,
             why: typeof it.why === 'string' ? it.why : undefined });
           n++;
         }
@@ -1612,6 +1638,37 @@
 
   $('closeBtn').addEventListener('click', () => history.back());
 
+  // ---------- vault: faded thoughts rest here — just a list, no actions ----------
+  function renderVault() {
+    const list = $('vaultList');
+    list.innerHTML = '';
+    const vs = vaulted().sort((a, b) => (b.updated_at || b.created) - (a.updated_at || a.created));
+    if (!vs.length) {
+      const e = document.createElement('div');
+      e.id = 'vaultEmpty';
+      e.textContent = 'Nothing has faded yet.';
+      list.appendChild(e);
+      return;
+    }
+    for (const it of vs) {
+      const row = document.createElement('div');
+      row.className = 'vaultrow';
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      txt.textContent = it.text;
+      const when = document.createElement('div');
+      when.className = 'when';
+      when.textContent = 'faded ' + new Date(it.updated_at || it.created).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      row.append(txt, when);
+      list.appendChild(row);
+    }
+  }
+  $('vaultToggle').addEventListener('click', () => {
+    const l = $('vaultList');
+    if (l.hidden) { renderVault(); l.hidden = false; $('vaultToggle').textContent = `🗄 Vault (${vaulted().length}) — hide`; }
+    else { l.hidden = true; $('vaultToggle').textContent = '🗄 Vault'; }
+  });
+
   // real countdown: re-check the clock every minute and whenever the app comes back
   // to the foreground, so long-open sessions still fade and purge for real
   function tick() {
@@ -1676,7 +1733,8 @@
     compass: !!it.compass,
     compass_prev: it.compassPrev || null,
     why: it.why || null,
-    deleted: !!it.deleted
+    deleted: !!it.deleted,
+    vault: !!it.vault
   });
   const fromRow = r => ({
     id: r.id,
@@ -1689,7 +1747,8 @@
     compass: !!r.compass,
     compassPrev: r.compass_prev || undefined,
     why: r.why || undefined,
-    deleted: !!r.deleted
+    deleted: !!r.deleted,
+    vault: !!r.vault
   });
 
   let syncTimer = null, syncing = false;

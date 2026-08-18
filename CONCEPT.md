@@ -147,6 +147,13 @@ forward (Pat: "need to be remembered on an irregular basis multiple times a week
   full-screen spotlight shows one random compass thing (tap or 6s to dismiss;
   braindump.lastSpot in localStorage). Real push while closed would need a server.
 
+## Vault (v34, 2026-08-06)
+Expired thoughts no longer die — they move to the VAULT: a quiet, read-only list
+("nur falls man mal wieder dran erinnert werden möchte", Pat). Toggle at the bottom
+of the archive ("🗄 Vault (N)"), rows show text + faded date, deliberately NO
+actions. Check-deletes stay final tombstones (done ≠ forgotten). New DB column:
+`vault boolean` (see supabase-schema.sql addendum).
+
 ## Drag between categories + fixes (v19, 2026-07-28)
 - Compass exit bug fixed: making something a compass now remembers where it came
   from (compassPrev); removing it restores five/overflow if there's still room

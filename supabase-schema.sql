@@ -29,3 +29,6 @@ create policy "own rows delete" on public.thoughts
 
 create index if not exists thoughts_user_updated
   on public.thoughts (user_id, updated_at);
+
+-- v34 addendum: the vault (faded thoughts rest as a quiet list)
+alter table public.thoughts add column if not exists vault boolean not null default false;
