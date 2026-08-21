@@ -613,7 +613,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v35</div>
+        <div class="version">v36</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -797,10 +797,37 @@
     saveLocal();
     scheduleSync();
   }
+  // another tab shares this storage and may have written since we last read —
+  // merge by id (newest wins) instead of blindly overwriting its work
+  function mergeStored() {
+    let stored = [];
+    try { stored = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (e) { return false; }
+    let changed = false;
+    for (const o of stored) {
+      if (!o || !o.id) continue;
+      const idx = items.findIndex(i => i.id === o.id);
+      const theirs = o.updated_at || o.created || 0;
+      if (idx < 0) { items.push(o); snap[o.id] = sigOf(o); changed = true; }
+      else if (theirs > (items[idx].updated_at || items[idx].created || 0)) {
+        items[idx] = o; snap[o.id] = sigOf(o); changed = true;
+      }
+    }
+    return changed;
+  }
   function saveLocal() {
+    mergeStored();
     localStorage.setItem(STORE_KEY, JSON.stringify(items));
     mirror();
   }
+  // storage events fire only in the OTHER tabs — adopt their work live
+  window.addEventListener('storage', e => {
+    if (e.key === STORE_KEY) {
+      if (mergeStored()) { localStorage.setItem(STORE_KEY, JSON.stringify(items)); rerender(); }
+    } else if (e.key === SESSION_KEY) {
+      try { session = JSON.parse(e.newValue || 'null'); } catch (err) { /* keep current */ }
+      renderSyncRow();
+    }
+  });
 
   // ---------- second copy in IndexedDB: auto-restore if localStorage is wiped ----------
   let idb = null;
@@ -1712,7 +1739,17 @@
         headers: { apikey: SYNC.key, 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: session.refresh_token })
       });
-      if (!r.ok) { if (r.status === 400 || r.status === 401) dropSession(); return false; }
+      if (!r.ok) {
+        // another tab may have refreshed already — its session sits in storage
+        let stored = null;
+        try { stored = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch (err) { stored = null; }
+        if (stored && stored.access_token !== session.access_token) {
+          session = stored;
+          return Date.now() / 1000 < session.expires_at - 60;
+        }
+        setSyncState('error');   // stay signed in and visible; never silently drop
+        return false;
+      }
       adoptSession(await r.json());
       return true;
     } catch (e) { return false; }  // offline — try again later
