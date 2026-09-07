@@ -397,6 +397,34 @@
     background: rgba(13,148,136,0.06);
     min-height: 34px;
   }
+  #intro {
+    position: fixed;
+    inset: 0;
+    background: rgba(14,23,38,0.86);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 40;
+    padding: 18px;
+  }
+  #intro[hidden] { display: none; }
+  .introcard {
+    background: #faf7f2;
+    border-radius: 22px;
+    padding: 14px 14px 12px;
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+  }
+  #introVideo {
+    width: 100%;
+    max-height: 66vh;
+    border-radius: 14px;
+    background: #faf7f2;
+    display: block;
+  }
+  .introcard .bigbtn { margin-top: 12px; }
+  .introhint { font-size: 12px; color: var(--muted); margin-top: 8px; }
   #spot {
     position: fixed;
     inset: 0;
@@ -613,7 +641,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v36</div>
+        <div class="version">v37</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -677,6 +705,14 @@
     <div class="dz" data-zone="five">✋<br>My Five</div>
     <div class="dz" data-zone="overflow">⏳<br>Overflow</div>
     <div class="dz" data-zone="archive">🔒<br>Archive</div>
+  </div>
+
+  <div id="intro" hidden>
+    <div class="introcard">
+      <video id="introVideo" src="intro.mp4" autoplay muted playsinline controls preload="metadata"></video>
+      <button class="bigbtn" id="introStart">Start dumping</button>
+      <div class="introhint">60 seconds &middot; shows while your list is empty</div>
+    </div>
   </div>
 
   <div id="spot" hidden>
@@ -896,6 +932,7 @@
 
   // ---------- main screen ----------
   function renderMain() {
+    if (items.some(i => !i.deleted) && !$('intro').hidden) $('intro').hidden = true;
     $('count').textContent = alive().length ? `${alive().length} in archive` : 'Archive';
 
     const cs = compasses();
@@ -1933,6 +1970,17 @@
     history.replaceState(null, '', location.pathname);
   }
   renderMain();
+  // first visit / empty list: the product video explains the idea
+  function hideIntro() {
+    const v = $('introVideo');
+    if (v && !v.paused) v.pause();
+    $('intro').hidden = true;
+  }
+  if (!items.some(i => !i.deleted)) {
+    $('intro').hidden = false;
+  }
+  $('introStart').addEventListener('click', () => { hideIntro(); $('dumpInput').focus(); });
+  $('intro').addEventListener('click', e => { if (e.target === $('intro')) hideIntro(); });
   maybeSpotlight();
   syncNow();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
