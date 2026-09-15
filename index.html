@@ -641,7 +641,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v37</div>
+        <div class="version">v38</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -920,8 +920,10 @@
     const left = EXPIRE_DAYS - d;
     if (it.compass) return 'compass';
     if (it.priority) return d === 0 ? 'today' : `${d} d ago`;
-    if (d >= FADE_START_DAYS) return `expires in ${Math.max(left, 0)} d`;
-    return d === 0 ? 'today' : `${d} d ago`;
+    // unprioritized thoughts always count DOWN, so the number never jumps
+    // (age 19 d one day, 'expires in 10 d' the next confused Pat)
+    if (d >= FADE_START_DAYS) return `fading · ${Math.max(left, 0)} d left`;
+    return `${left} d left`;
   }
 
   // ---------- screens ----------
