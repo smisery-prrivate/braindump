@@ -174,6 +174,12 @@ actions. Check-deletes stay final tombstones (done ≠ forgotten). New DB column
   him realize "doesn't have to be now"): "Sure it can't wait?" / "Are you sure?
   ... If it can wait, let it wait in the archive." / "The last spot. Really?"
 
+## Overflow life resets on every deliberate move (v41, 2026-10-04)
+Pat: an active decision to take something out of the overflow is a prioritization and
+should be rewarded. v26 only reset the life on a direct return to the archive; promotions
+to the five or the compass (and tapping the row off) kept it spent, so the thought was
+refused a second overflow later. Now every deliberate exit resets guestUsed; only the
+silent 30-hour expiry keeps it spent.
 ## Drag polish + archive-return fix (v26, 2026-07-30)
 - Drop bar now appears already at LIFT (450ms) — you see the targets before moving;
   the options dialog follows at 1.4s and hides the bar.
