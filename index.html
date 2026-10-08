@@ -641,7 +641,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v41</div>
+        <div class="version">v42</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -809,6 +809,13 @@
     catch (e) { items = []; }
     for (const it of items) if (!it.updated_at) it.updated_at = it.created;
     rebuildSnap();
+    // one-time amnesty (v42): before v41 a deliberate exit from the overflow kept the life
+    // spent, and nothing could ever reset it again. Items still sitting in the overflow
+    // keep their state; expiry below still spends the life as designed.
+    if (!localStorage.getItem('braindump.amnesty42')) {
+      for (const it of items) if (it.guestUsed && !it.guest) it.guestUsed = false;
+      localStorage.setItem('braindump.amnesty42', '1');
+    }
     purgeReal();
     save();
   }
