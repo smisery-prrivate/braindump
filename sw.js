@@ -1,4 +1,4 @@
-const CACHE = 'braindump-v42';
+const CACHE = 'braindump-v43';
 const ASSETS = ['.', 'index.html', 'config.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -8,7 +8,8 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      // only this app's own old caches: other apps on the same web address keep theirs
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('braindump-') && k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
