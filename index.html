@@ -641,7 +641,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v43</div>
+        <div class="version">v44</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1763,13 +1763,13 @@
   function jwtPayload(token) {
     return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
   }
-  function adoptSession(d) {
+  function adoptSession(d, u) {
     const p = jwtPayload(d.access_token);
     session = {
       access_token: d.access_token,
       refresh_token: d.refresh_token,
       expires_at: p.exp,
-      email: p.email,
+      email: (u && u.email) || p.email,
       uid: p.sub
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
@@ -1777,6 +1777,52 @@
   function dropSession() {
     session = null;
     localStorage.removeItem(SESSION_KEY);
+  }
+  // Tokens from a sign-in link. Anyone can send a link that carries their own session; opened
+  // here it would sign this phone into their account and upload its thoughts there. So: the
+  // server has to confirm the token, and it is taken without a question only when this phone
+  // asked for a link for that very address within the last hour and no other account is signed
+  // in. In every other case the app asks first and names the address.
+  // Returns true when the tokens were adopted.
+  const LINK_KEY = 'braindump.linkAsked';   // { at, email } written when the send button was tapped
+  let linkMsg = '';                          // why the last sign-in link was not used
+  async function adoptLink(t) {
+    if (!SYNC) return false;
+    let u = null, p = null;
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 15000);
+    try {
+      p = jwtPayload(t.access_token);
+      const r = await fetch(SYNC.url + '/auth/v1/user', {
+        headers: { apikey: SYNC.key, Authorization: 'Bearer ' + t.access_token },
+        signal: ctl.signal
+      });
+      if (r.ok) u = await r.json();
+    } catch (e) { u = null; }
+    finally { clearTimeout(timer); }
+    if (!u || !u.id || !u.email || u.id !== p.sub) {
+      linkMsg = 'That sign-in link could not be confirmed. Request a new one:';
+      return false;
+    }
+    const mail = String(u.email);
+    let asked = null;
+    try { asked = JSON.parse(localStorage.getItem(LINK_KEY) || 'null'); } catch (e) { asked = null; }
+    const age = asked ? Date.now() - asked.at : -1;
+    const mine = !!asked && age >= 0 && age < 3600000 && asked.email === mail.toLowerCase();
+    if (mine) localStorage.removeItem(LINK_KEY);   // one link per request
+    const same = !!session && session.uid === u.id;   // already signed in with this account: nothing changes hands
+    if (!same && (session || !mine)) {
+      const q = session
+        ? 'This phone is signed in as:\n' + (session.email || 'unknown') +
+          '\n\nThe sign-in link you opened would sign it in as:\n' + mail +
+          '\n\nOnly confirm if you want to switch accounts. The thoughts on this phone will then sync with that account.'
+        : 'This sign-in link was not requested from this phone in the last hour.' +
+          '\n\nIt signs this phone in as:\n' + mail +
+          '\n\nOnly confirm if this is your own address. The thoughts on this phone will then sync with that account.';
+      if (!confirm(q)) return false;
+    }
+    adoptSession(t, u);
+    linkMsg = '';
+    return true;
   }
   async function ensureSession() {
     if (!SYNC || !session) return false;
@@ -1915,6 +1961,9 @@
       headers: { apikey: SYNC.key, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, create_user: true })
     });
+    if (r.ok) {
+      try { localStorage.setItem(LINK_KEY, JSON.stringify({ at: Date.now(), email: email.toLowerCase() })); } catch (e) {}
+    }
     return r.ok;
   }
   function renderSyncRow() {
@@ -1924,7 +1973,7 @@
     $('syncEmail').hidden = signedIn;
     $('syncSend').hidden = signedIn;
     $('syncOff').hidden = !signedIn;
-    if (!signedIn) { $('syncHint').textContent = 'Sync across devices:'; return; }
+    if (!signedIn) { $('syncHint').textContent = linkMsg || 'Sync across devices:'; return; }
     const okAt = +localStorage.getItem('braindump.lastOk.' + session.uid) || 0;
     const mins = okAt ? Math.floor((Date.now() - okAt) / 60000) : null;
     const when = okAt ? (mins < 1 ? 'just now' : mins < 60 ? mins + ' min ago' : Math.floor(mins / 60) + ' h ago') : 'never';
@@ -1937,6 +1986,7 @@
     const email = $('syncEmail').value.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('syncHint').textContent = 'Enter a valid email.'; return; }
     $('syncHint').textContent = 'Sending…';
+    linkMsg = '';
     const ok = await sendMagicLink(email);
     $('syncHint').textContent = ok ? 'Magic link sent — check your email.' : 'Could not send. Try again later.';
   });
@@ -1950,18 +2000,14 @@
   if (history.state && history.state.sub) history.replaceState(null, '');
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   openMirror();
-  // magic-link return: session tokens arrive in the URL hash, never on the server
+  // magic-link return: session tokens arrive in the URL hash, never on the server. The address
+  // is cleaned at once; whether the tokens are used is decided further down, in adoptLink.
+  let linkTokens = null;
   if (location.hash.includes('access_token=')) {
     try {
       const q = new URLSearchParams(location.hash.slice(1));
       if (q.get('access_token') && q.get('refresh_token')) {
-        adoptSession({ access_token: q.get('access_token'), refresh_token: q.get('refresh_token') });
-        // adopt the local stock: stamp everything "now" so migrated thoughts with old
-        // created-dates are visible to every other device's sync window
-        const now = Date.now();
-        for (const it of items) { it.updated_at = now; snap[it.id] = sigOf(it); }
-        saveLocal();
-        setTimeout(() => flash('Sync enabled.'), 300);
+        linkTokens = { access_token: q.get('access_token'), refresh_token: q.get('refresh_token') };
       }
     } catch (e) { /* malformed hash — ignore */ }
     history.replaceState(null, '', location.pathname);
@@ -1993,7 +2039,20 @@
   $('introStart').addEventListener('click', () => { hideIntro(); $('dumpInput').focus(); });
   $('intro').addEventListener('click', e => { if (e.target === $('intro')) hideIntro(); });
   maybeSpotlight();
-  syncNow();
+  if (linkTokens) {
+    adoptLink(linkTokens).catch(() => false).then(taken => {
+      if (taken) {
+        // adopt the local stock: stamp everything "now" so migrated thoughts with old
+        // created-dates are visible to every other device's sync window
+        const now = Date.now();
+        for (const it of items) { it.updated_at = now; snap[it.id] = sigOf(it); }
+        saveLocal();
+        flash('Sync enabled.');
+      } else if (linkMsg) flash('Sign-in link not used.');
+      renderSyncRow();
+      syncNow();
+    });
+  } else syncNow();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js');
   }

@@ -211,6 +211,18 @@ started with 2s). Lesson: always test touch flows with real touch events
   is still free, else "Back to archive") — keeps the v19 restore behavior.
   Plain archive rows keep Edit + Make it a compass.
 
+## Sign-in links are checked (v44, 2026-10-09)
+A link with session tokens in the address used to be adopted unchecked. Anyone could send a
+link carrying their own session; a phone that opened it was signed into that account, uploaded
+its thoughts there and received that account's thoughts.
+- The server has to confirm every token (`/auth/v1/user`); the address shown comes from that answer.
+- Taken without a question only when this phone asked for a link for that very address within
+  the last hour (`braindump.linkAsked`, written when "Enable sync" is tapped) and no other
+  account is signed in. In every other case the app asks first and names the address.
+- A signed-in session of another account is never replaced without that confirmation.
+- Same pattern as Stillzeit (`stillzeit.linkAsked`) and Snapdoc (`snapdoc.linkAsked`).
+- Test: `_preview/tests/t1-signin-link.js` (not in the repo), run command in the header of `h.js` there.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
