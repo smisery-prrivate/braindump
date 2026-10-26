@@ -13,3 +13,7 @@ Gedanken verblassen mit dem Alter und werden nach 30 Tagen gelöscht. Gewählt =
 - Installierbar über "Zum Startbildschirm hinzufügen", läuft offline (Service Worker).
 
 Konzept: siehe [CONCEPT.md](CONCEPT.md). Archiv-Demopasswort: `1234`.
+
+**Journal** (`journal/`): a second app in this repo, published at `/braindump/journal/`. Long voice memos,
+transcribed, encrypted on the device, locked, with an encrypted cloud copy. See [journal/README.md](journal/README.md)
+and [journal/CONCEPT.md](journal/CONCEPT.md).
