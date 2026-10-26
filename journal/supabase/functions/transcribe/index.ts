@@ -5,15 +5,16 @@
 // Nothing is stored here; the provider's API key never reaches the phone.
 //
 // Secrets (supabase secrets set KEY=value):
-//   STT_PROVIDER     openai (default) | deepgram
-//   OPENAI_API_KEY   for openai;  STT_MODEL   gpt-4o-transcribe (default) | whisper-1 | gpt-4o-mini-transcribe
+//   STT_PROVIDER     mistral (default) | openai | deepgram
+//   MISTRAL_API_KEY  for mistral;  STT_MODEL  voxtral-mini-transcribe-3 (default)
+//   OPENAI_API_KEY   for openai;   STT_MODEL  gpt-4o-transcribe (default) | whisper-1 | gpt-4o-mini-transcribe
 //   DEEPGRAM_API_KEY for deepgram; STT_MODEL  nova-3 (default)
 //   ALLOWED_EMAILS   comma-separated list; when set, only these signed-in users may transcribe
 //   ALLOWED_ORIGIN   the app's origin for CORS, e.g. https://example.github.io (default: *)
 //   MAX_BYTES        upload limit per segment in bytes (default 26214400 = 25 MB)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const PROVIDER = (Deno.env.get("STT_PROVIDER") ?? "openai").toLowerCase();
+const PROVIDER = (Deno.env.get("STT_PROVIDER") ?? "mistral").toLowerCase();
 const ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? "*";
 const MAX_BYTES = Number(Deno.env.get("MAX_BYTES") ?? 26214400);
 const ALLOWED = (Deno.env.get("ALLOWED_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -36,17 +37,19 @@ async function userOf(req: Request): Promise<{ id: string; email: string } | nul
   return u && u.id ? { id: u.id, email: (u.email ?? "").toLowerCase() } : null;
 }
 
+// OpenAI-shaped endpoints: OpenAI itself and Mistral (Voxtral)
 async function openai(file: File, language: string, prompt: string) {
-  const key = Deno.env.get("OPENAI_API_KEY");
-  if (!key) throw new Error("OPENAI_API_KEY is not set");
-  const model = Deno.env.get("STT_MODEL") ?? "gpt-4o-transcribe";
+  const mistral = PROVIDER === "mistral";
+  const key = Deno.env.get(mistral ? "MISTRAL_API_KEY" : "OPENAI_API_KEY");
+  if (!key) throw new Error((mistral ? "MISTRAL_API_KEY" : "OPENAI_API_KEY") + " is not set");
+  const model = Deno.env.get("STT_MODEL") ?? (mistral ? "voxtral-mini-transcribe-3" : "gpt-4o-transcribe");
   const fd = new FormData();
   fd.append("file", file, file.name || "segment.webm");
   fd.append("model", model);
-  fd.append("response_format", "json");
+  if (!mistral) fd.append("response_format", "json");
   if (language) fd.append("language", language);
-  if (prompt) fd.append("prompt", prompt);
-  const r = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd });
+  if (prompt && !mistral) fd.append("prompt", prompt);
+  const r = await fetch(mistral ? "https://api.mistral.ai/v1/audio/transcriptions" : "https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd });
   if (!r.ok) throw new Error(`transcription provider answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
   return { text: String(j.text ?? ""), language: String(j.language ?? "") };

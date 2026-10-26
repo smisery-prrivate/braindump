@@ -17,7 +17,10 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   encrypted as *parts*. A crash, a killed app or a dead battery loses at most the last ten
   seconds: the next start assembles the parts into a segment and closes the entry. A memo with
   nothing in it is dropped.
-- **Transcribe.** German and English, also mixed in one memo. Segments are transcribed one after
+- **Transcribe.** Two ways in. *Own key* (the simple way): a key for Mistral (EU), ElevenLabs,
+  Deepgram or OpenAI, entered once in the menu, stored encrypted in the vault;
+  each segment goes straight from the phone to the service. *Own cloud function*: sign in, the
+  key stays on the server (see below). German and English, also mixed in one memo. Segments are transcribed one after
   the other; the last words of the previous segment go along as a hint, so a sentence cut by the
   segment border continues correctly. The transcript is editable; your edits are kept and marked.
   "Transcribe again" starts over. A refused segment is retried after a growing pause (1, 4, 16 …
@@ -66,8 +69,10 @@ is Snapdoc's, moved into its own namespace (labels `jn|…`, key file `journal-d
   password (PBKDF2, 600,000 rounds); the password never leaves the device. Every entry is sealed
   together with its change time and delete flag; the plain columns must say what the seal says or
   the row is ignored and reported. The server cannot read, alter or forge an entry.
-- **Transcription is the one place audio leaves the device, and only by your choice.** A segment
-  goes, over TLS, to the app's own Supabase Edge Function, which checks the sign-in, optionally
+- **Transcription is the one place audio leaves the device, and only by your choice.** With an
+  own key a segment goes, over TLS, straight to the chosen service; the key sits sealed in the
+  `meta` store (`jn|stt`) and is re-encrypted with every key change like everything else. With
+  the cloud function a segment goes to the app's own Supabase Edge Function, which checks the sign-in, optionally
   allows only listed e-mail addresses, hands the audio to the transcription provider and returns
   the text. The function stores nothing and the provider's key never reaches the phone. The
   provider may keep audio for a while under its own terms (OpenAI: up to 30 days for abuse
@@ -156,9 +161,9 @@ under `journal.*`; the lock delay accepts only the offered values.
 - Newest memo first, one segment at a time, the previous segment's last 200 characters as the
   prompt. Language: detect (German and English), or fixed German or English.
 - The function (`supabase/functions/transcribe`) accepts one segment of up to 25 MB (configurable),
-  checks the user with the project's auth service, honours `ALLOWED_EMAILS`, and calls OpenAI
-  (`gpt-4o-transcribe` by default; `whisper-1` or `gpt-4o-mini-transcribe` via `STT_MODEL`) or
-  Deepgram (`nova-3`, `language=multi` for code-switching) depending on `STT_PROVIDER`. Segments
+  checks the user with the project's auth service, honours `ALLOWED_EMAILS`, and calls Mistral
+  (`voxtral-mini-transcribe-3`, the default), OpenAI (`gpt-4o-transcribe`) or Deepgram
+  (`nova-3`, `language=multi` for code-switching) depending on `STT_PROVIDER`. Segments
   stay well under every provider's size and length limits because they are a few minutes each.
 - A transcription cut off by a restart goes back to "todo". The queue runs while recording, after
   the unlock, when the app returns to the front, when the connection comes back and once a minute.
@@ -181,6 +186,8 @@ See `README.md`.
 
 ## History
 
+- v2 (2026-10-26): transcription with the user's own key straight from the phone (Mistral,
+  ElevenLabs, Deepgram, OpenAI), no cloud project needed.
 - v1 (2026-10-26): first version. Segmented, crash-safe, encrypted recorder; lock (PRF, gate,
   PIN); transcription through the app's own Edge Function (OpenAI or Deepgram); encrypted cloud
   copy; encrypted backup file; Markdown export; end-to-end test in headless Chromium.

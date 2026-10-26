@@ -5,7 +5,22 @@ optional encrypted cloud copy. A web app without build step, like Snapdoc and Br
 Concept and security model: [CONCEPT.md](CONCEPT.md).
 
 Without any set-up the app runs fully on the device: record, play, notes, lock, backup file.
-Transcription and the cloud copy need the three steps below.
+
+## Transcription, the simple way (2 minutes)
+
+Menu, Transcription, choose **Mistral**, paste an API key, done. Mistral is European (Paris);
+its Voxtral model transcribes German and English for a few cents per hour of audio. Sign up at
+console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create API Key. Avoid the free
+Experiment plan for a journal: it lets Mistral train on what you send. The key is stored
+encrypted on the phone and each part of a memo goes straight from the phone to Mistral.
+ElevenLabs (London), Deepgram and OpenAI keys work the same way. No cloud project needed.
+If a service refuses direct requests from a web app, the entry says so; the cloud route below
+always works.
+
+## Transcription through your own cloud project, and the encrypted cloud copy
+
+The alternative keeps no key on the phone (the function holds it) and adds the encrypted cloud
+copy, so a lost phone does not mean a lost journal. Three steps:
 
 ## 1. Supabase project (3 minutes)
 
@@ -30,20 +45,22 @@ against your sign-in. Needs the Supabase CLI (`npm i -g supabase`).
 cd journal
 supabase login
 supabase link --project-ref <your project ref>
-supabase secrets set OPENAI_API_KEY=sk-...            # or DEEPGRAM_API_KEY=... with STT_PROVIDER=deepgram
+supabase secrets set MISTRAL_API_KEY=...              # or OPENAI_API_KEY with STT_PROVIDER=openai, DEEPGRAM_API_KEY with STT_PROVIDER=deepgram
 supabase secrets set ALLOWED_EMAILS=you@example.com   # only this account may transcribe
 supabase secrets set ALLOWED_ORIGIN=https://smisery-prrivate.github.io
 supabase functions deploy transcribe
 ```
 
-Optional secrets: `STT_MODEL` (OpenAI: `gpt-4o-transcribe` default, `whisper-1`,
-`gpt-4o-mini-transcribe`; Deepgram: `nova-3`), `MAX_BYTES` (default 25 MB per segment).
+Optional secrets: `STT_MODEL` (Mistral: `voxtral-mini-transcribe-3` default; OpenAI:
+`gpt-4o-transcribe` default, `whisper-1`, `gpt-4o-mini-transcribe`; Deepgram: `nova-3`),
+`MAX_BYTES` (default 25 MB per segment).
 
-Provider notes: OpenAI's `gpt-4o-transcribe` is the default; Deepgram's `nova-3` with
-`language=multi` is built for German/English switching inside one sentence. Both are fed
-segments of a few minutes, so file-size and length limits never bite. What the provider keeps:
-OpenAI retains API audio up to 30 days for abuse monitoring unless zero data retention is granted;
-check the current terms of whichever provider you choose.
+Provider notes: Mistral (EU) is the default; Deepgram's `nova-3` with `language=multi` is
+built for German/English switching inside one sentence; OpenAI's `gpt-4o-transcribe` is the
+US alternative. All are fed segments of a few minutes, so file-size and length limits never
+bite. What the provider keeps: OpenAI retains API audio up to 30 days for abuse monitoring
+unless zero data retention is granted; Mistral's paid plans do not train on your data, the free
+plan does; check the current terms of whichever provider you choose.
 
 ## 3. Publish
 

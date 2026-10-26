@@ -174,7 +174,7 @@ async function boot() {
   }
   if (state === 'locked') { showLock(false); await whenUnlocked(); if (!isOwner()) { instanceLost(); return; } }
   try { await loadEntries(); } catch (e) { fatal('The stored entries could not be read (' + errText(e) + ').'); return; }
-  await loadSession();
+  await loadSession(); await loadStt();
   if (tokens) { try { linkMsg = await adoptLink(tokens); } catch (e) { linkMsg = 'The sign-in link could not be used.'; } }
   try { await recoverRecordings(); } catch (e) {}
   for (const e of entries) { if (e.broken || e.deleted) continue; let ch = false; for (const g of e.segs || []) if (g.st === 'busy') { g.st = 'todo'; ch = true; } if (ch) await persist(e, { quiet: true }); }      // a transcription cut off by a restart
@@ -188,6 +188,7 @@ async function boot() {
   let resume = ''; try { resume = sessionStorage.getItem(RESUME_KEY) || ''; sessionStorage.removeItem(RESUME_KEY); } catch (e) {}
   const re = resume && byId(resume); if (re && !re.deleted && !linkMsg) openEntry(re);
 
+  if (stt) scheduleTranscribe(1500);
   if (session) { scheduleTranscribe(1500); syncNow().then(() => { if (tokens && !linkMsg && (keyNeed === 'create' || keyNeed === 'enter')) openSheet(); }); }
   setTimeout(resealAll, 3000); setTimeout(housekeeping, 8000);
   registerSW();
@@ -219,6 +220,6 @@ window.addEventListener('online', () => { syncNow(); scheduleTranscribe(); });
 setInterval(() => { if (passive) return; renderSyncLine(); syncNow(); scheduleTranscribe(); }, 60000);
 
 window.journalDebug = { get entries() { return entries; }, get session() { return session; }, get keyNeed() { return keyNeed; }, get syncState() { return syncState + (syncMsg ? ': ' + syncMsg : ''); },
-  get busy() { return workInFlight(); }, get passive() { return passive; }, get locked() { return locked; }, get recording() { return recording; }, get updateReady() { return updateReady; },
+  get busy() { return workInFlight(); }, get passive() { return passive; }, get locked() { return locked; }, get recording() { return recording; }, get updateReady() { return updateReady; }, get stt() { return stt; }, saveStt,
   syncNow, syncRetry, idb, segGet, Vault, relock, resealAll, housekeeping, transcribeNow, startRecording, stopRecording, pauseRecording, makeBackup, readBackup, recoverRecordings, persist, settings };
 boot().catch(e => fatal('Unexpected error: ' + errText(e)));

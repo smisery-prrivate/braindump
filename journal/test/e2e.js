@@ -54,6 +54,22 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
   check((await page.textContent('#list')).includes('Erster Test') && (await page.textContent('#list')).includes('Eine Notiz'), 'home shows title and note');
 
+  // 2b. direct mode: own key, no cloud project
+  await page.click('#menuBtn'); await page.waitForSelector('#sttKey');
+  await page.selectOption('#sttProv', 'mistral'); await page.fill('#sttKey', 'short'); await page.click('#sttSave'); await sleep(300);
+  check((await page.textContent('#sttHint')).includes('does not look'), 'a too short key is refused');
+  await page.fill('#sttKey', 'mi_test_key_1234567890'); await page.click('#sttSave'); await sleep(500);
+  check(await page.evaluate(async () => { const r = await journalDebug.idb.get('meta', 'stt'); return !!r && !new TextDecoder().decode(r.data).includes('mi_test'); }), 'key stored encrypted');
+  await page.evaluate(() => back()); await sleep(500);
+  await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
+  await page.click('#txBtns button');
+  await page.waitForFunction(() => journalDebug.entries[0].segs.every(g => g.st === 'done'), null, { timeout: 20000 });
+  const direct = await page.evaluate(() => journalDebug.entries[0].segs.map(g => g.text));
+  console.log('direct', JSON.stringify(direct));
+  check(direct.every(t => /Mistral transcript .*voxtral-mini-transcribe-3/.test(t)), 'transcribed straight from the phone with the own key');
+  await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
+  await page.evaluate(async () => { for (const g of journalDebug.entries[0].segs) { g.st = 'todo'; g.text = ''; } await journalDebug.persist(journalDebug.entries[0]); await journalDebug.saveStt(null); });
+
   // 3. sign in via PKCE link, then transcribe
   await page.evaluate(() => { localStorage.setItem('journal.linkAsked', String(Date.now())); localStorage.setItem('journal.pkce', 'verifier'); });
   await page.goto(BASE + '?code=goodcode'); await page.waitForFunction(() => window.journalDebug && journalDebug.session);
@@ -69,8 +85,8 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.waitForFunction(() => journalDebug.entries[0].segs.every(g => g.st === 'done'), null, { timeout: 20000 });
   const tx = await page.evaluate(() => ({ text: document.getElementById('txText').value, segs: journalDebug.entries[0].segs.map(g => g.text) }));
   console.log('transcript', JSON.stringify(tx));
-  check(tx.segs.length >= 2 && tx.segs[1].includes('prompt: Mock transcript 1'), 'second segment got the first one\'s tail as prompt');
-  check(tx.text.includes('Mock transcript 1') && tx.text.includes('Mock transcript 2'), 'transcript stitched in the entry view');
+  check(tx.segs.length >= 2 && /prompt: Mock transcript \d+/.test(tx.segs[1]), 'second segment got the first one\'s tail as prompt');
+  check(/Mock transcript \d+ \(.*\n\nMock transcript \d+/.test(tx.text), 'transcript stitched in the entry view');
   // edit the transcript
   await page.fill('#txText', 'Edited by hand.'); await sleep(1200);
   check(await page.evaluate(() => journalDebug.entries[0].tEdited && journalDebug.entries[0].transcript === 'Edited by hand.'), 'transcript edit stored');

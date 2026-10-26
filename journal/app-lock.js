@@ -148,11 +148,25 @@ function renderSheet() {
 }
 function renderTxBox() {
   const box = $('txBox'); if (!box) return;
+  const viaCloud = !stt && SYNC && session;
   box.innerHTML = '<div class="rowopt"><span>Transcribe memos</span><select id="setTx"><option value="ask">Ask after each memo</option><option value="auto">Automatically</option><option value="off">Never (audio only)</option></select></div>' +
     '<div class="rowopt"><span>Spoken language</span><select id="setLang"><option value="auto">German and English (detect)</option><option value="de">German</option><option value="en">English</option></select></div>' +
-    '<div class="hint">For a transcript the audio is sent, encrypted in transit, to your own cloud function and from there to the transcription service, which returns the text. The text is stored encrypted here. Nothing is stored on the way; the service may keep audio for a short while under its own terms. ' + (SYNC ? (session ? '' : 'Sign in below to use it.') : 'Not available in this version.') + '</div>';
+    (stt ? '<div class="statecard"><div class="t">✓ Own key: ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Each part of a memo goes straight from this phone to the service and the text comes back; nothing passes through any other server. The service may keep audio for a while under its own terms.</div></div>' +
+      '<button class="btn quiet" id="sttOff">Remove the key</button>'
+    : '<p><b>Simplest way: your own key.</b> Mistral (Paris) transcribes German and English for a few cents per hour: sign up at console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create. (Mistral\'s free Experiment plan lets them train on your audio, so take the paid one for a journal.) The key is stored encrypted on this device and used only from here.</p>' +
+      '<select id="sttProv">' + Object.keys(STT).map(k => '<option value="' + k + '">' + esc(STT[k].name) + '</option>').join('') + '</select>' +
+      '<input id="sttKey" type="password" autocomplete="off" placeholder="API key"><button class="btn primary" id="sttSave">Use this key</button>' +
+      (viaCloud ? '<div class="hint">Currently transcribing through your cloud function. A key here takes precedence.</div>' : SYNC ? '<div class="hint">Alternative: sign in below and run the transcription function in your own cloud project; then no key is kept on the phone.</div>' : '')) +
+    '<div class="hint" id="sttHint"></div>';
   $('setTx').value = settings.transcribe; $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } });
   $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); });
+  if ($('sttSave')) $('sttSave').addEventListener('click', async () => {
+    const key = $('sttKey').value.trim(), provider = $('sttProv').value, hint = $('sttHint');
+    if (key.length < 16) { hint.textContent = 'That does not look like an API key.'; return; }
+    try { await saveStt({ provider, key }); toast('Transcription is set up'); renderTxBox(); renderSyncLine(); scheduleTranscribe(); } catch (e) { hint.textContent = 'Not saved: ' + errText(e); }
+  });
+  if ($('sttOff')) $('sttOff').addEventListener('click', () => popup('Remove the key?', 'Transcription stops until a key is entered again or you sign in to a cloud project.', [
+    { label: 'Remove', cls: 'danger', fn: async () => { abortTranscribe(); await saveStt(null); renderTxBox(); renderSyncLine(); } }, { label: 'Keep it', cls: 'quiet' }]));
 }
 const LOCK_TEXT = {
   prf: ['🔒 Locked with fingerprint / screen lock', 'The key to your journal is released only by this phone\'s screen lock.'],
@@ -236,6 +250,7 @@ async function resealAll() {
       await pass('parts', (r, f) => { const seg = r.id.slice(0, r.id.indexOf('|')), n = +r.id.slice(r.id.indexOf('|') + 1); return f === 'm' ? pLabel(seg, n) + '|m' : pLabel(seg, n); });
       const sess = await idb.get('meta', 'session'); if (sess) { const nb = await Vault.reseal(sess.data, 'jn|session').catch(() => null); if (nb) await idb.put('meta', { id: 'session', data: nb }); }
       const cur = await idb.get('meta', 'cursor'); if (cur) { const nb = await Vault.reseal(cur.data, 'jn|cursor').catch(() => null); if (nb) await idb.put('meta', { id: 'cursor', data: nb }); }
+      const sk = await idb.get('meta', 'stt'); if (sk) { const nb = await Vault.reseal(sk.data, 'jn|stt').catch(() => null); if (nb) await idb.put('meta', { id: 'stt', data: nb }); }
       if (session && !(await Vault.resealCloudKey(session.uid))) left = true;
       if (left || recWrites > 0 || recSeq !== seqAt || Vault.keyGen() !== gen) { if (resealAgain || Vault.keyGen() !== gen) continue; break; }
       await Vault.dropOldKeys(gen);

@@ -96,7 +96,7 @@ function renderTxState() {
   let msg = '', cls = '';
   if (s === 'busy') { msg = 'Transcribing… ' + done + ' of ' + segs.length + ' parts done.'; cls = 'busy'; }
   else if (s === 'fail') { const f = segs.find(g => g.st === 'fail'); msg = 'Transcription failed: ' + (f && f.err || 'unknown error') + (txFailUntil(e) ? ' · trying again ' + txFailUntil(e) : ''); cls = 'fail'; }
-  else if (s === 'todo') msg = e.tx ? (SYNC && session ? 'Waiting to transcribe…' : 'Sign in (Menu) to transcribe.') : 'Not transcribed. The audio is stored encrypted here.';
+  else if (s === 'todo') msg = e.tx ? (txAvailable() ? 'Waiting to transcribe…' : 'Set up transcription in the menu.') : 'Not transcribed. The audio is stored encrypted here.';
   else if (s === 'off') msg = 'Audio only.';
   else if (s === 'done') msg = (e.tEdited ? 'Edited by you.' : 'Transcribed.') + (e.lang && e.lang !== 'auto' ? '' : '');
   if (e.state === 'rec') { msg = 'Still recording.'; cls = ''; }

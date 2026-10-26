@@ -12,7 +12,7 @@ const authed = req => (req.headers.authorization || '').startsWith('Bearer h.');
 
 http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x'), p = u.pathname;
-  if (p.startsWith('/auth/') || p.startsWith('/rest/') || p.startsWith('/storage/') || p.startsWith('/functions/') || p === '/__state' || p === '/__reset' || p === '/__fail') {
+  if (p.startsWith('/auth/') || p.startsWith('/rest/') || p.startsWith('/storage/') || p.startsWith('/functions/') || p.startsWith('/mistral/') || p === '/__state' || p === '/__reset' || p === '/__fail') {
     const body = await readBody(req);
     if (p === '/__state') return json(res, 200, { keys: [...state.keys.values()], entries: [...state.entries.values()], objects: [...state.objects.keys()], txCalls: state.txCalls });
     if (p === '/__reset') { state.keys.clear(); state.entries.clear(); state.objects.clear(); state.txCalls = 0; state.txFailNext = +u.searchParams.get('failNext') || 0; return json(res, 200, { ok: true }); }
@@ -20,6 +20,12 @@ http.createServer(async (req, res) => {
     if (p === '/auth/v1/otp') return json(res, 200, {});
     if (p === '/auth/v1/token') { const j = JSON.parse(body.toString() || '{}'); if (u.searchParams.get('grant_type') === 'pkce' && j.auth_code !== 'goodcode') return json(res, 400, { error: 'bad code' }); return json(res, 200, { access_token: token(Math.floor(Date.now() / 1000) + 3600), refresh_token: 'r' + Date.now() }); }
     if (p === '/auth/v1/user') return authed(req) ? json(res, 200, USER) : json(res, 401, { error: 'no' });
+    if (p === '/mistral/v1/audio/transcriptions') {
+      if ((req.headers.authorization || '') !== 'Bearer mi_test_key_1234567890') return json(res, 401, { error: { message: 'Invalid API Key' } });
+      state.txCalls++;
+      const model = /name="model"\r\n\r\n([^\r]*)/.exec(body.toString('latin1'));
+      return json(res, 200, { text: 'Mistral transcript ' + state.txCalls + ' (' + body.length + ' bytes, model ' + (model ? model[1] : '?') + ').' });
+    }
     if (!authed(req)) return json(res, 401, { message: 'JWT required' });
     if (p === '/rest/v1/jn_keys') {
       if (req.method === 'GET') return json(res, 200, [...state.keys.values()]);
@@ -52,7 +58,7 @@ http.createServer(async (req, res) => {
   }
   // static
   let f = p === '/' ? '/index.html' : p;
-  if (f === '/config.js') { res.writeHead(200, { 'Content-Type': 'application/javascript' }); return res.end("window.APP_CONFIG = { supabaseUrl: 'http://localhost:" + PORT + "', supabaseKey: 'sb_publishable_test' };"); }
+  if (f === '/config.js') { res.writeHead(200, { 'Content-Type': 'application/javascript' }); return res.end("window.APP_CONFIG = { supabaseUrl: 'http://localhost:" + PORT + "', supabaseKey: 'sb_publishable_test', sttEndpoints: { mistral: 'http://localhost:" + PORT + "/mistral/v1/audio/transcriptions' } };"); }
   const fp = path.join(ROOT, f);
   if (!fs.existsSync(fp) || fs.statSync(fp).isDirectory()) { res.writeHead(404); return res.end('not found'); }
   res.writeHead(200, { 'Content-Type': MIME[path.extname(fp)] || 'application/octet-stream' }); fs.createReadStream(fp).pipe(res);
