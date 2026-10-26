@@ -1,0 +1,5 @@
+# Journal: the transcription function checks the user's sign-in itself (publishable keys are not
+# JWTs, so the gateway's own check is switched off here). Deploy with
+#   supabase functions deploy transcribe
+[functions.transcribe]
+verify_jwt = false

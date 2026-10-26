@@ -1,0 +1,233 @@
+'use strict';
+/* Journal screens: the list of days and entries, the entry view with its player and transcript,
+   typed notes, search, delete with undo, sharing the text. */
+let curEntry = null, searchQ = '', pendingDel = new Set();
+const player = { e: null, i: -1, urls: new Map(), audio: null, rate: 1, seeking: false, loading: false, want: false };
+
+// ---------- home ----------
+function matches(e, q) {
+  if (!q) return true;
+  const hay = ((e.title || '') + '\n' + (e.text || '') + '\n' + entryText(e)).toLowerCase();
+  return q.split(/\s+/).filter(Boolean).every(w => hay.includes(w));
+}
+function snippet(e) {
+  const t = (e.text || '').trim() || entryText(e).trim();
+  if (t) return t.replace(/\s+/g, ' ').slice(0, 160);
+  const s = txState(e);
+  return s === 'busy' ? 'Transcribing…' : s === 'todo' ? 'Not transcribed yet' : s === 'fail' ? 'Transcription failed' : s === 'off' ? 'Audio only' : '';
+}
+function renderHome() {
+  if (!entriesLoaded) return;
+  const list = $('list'), all = live().filter(e => !pendingDel.has(e.id)), q = searchQ.trim().toLowerCase();
+  $('searchRow').hidden = all.length < 4 && !q;
+  const shown = all.filter(e => matches(e, q));
+  if (!shown.length) {
+    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>Tap the microphone and talk, for as long as you like. Everything is stored encrypted on this phone.') + '</div>';
+    return;
+  }
+  let html = '', day = '';
+  for (const e of shown) {
+    const d = dayKey(e.created);
+    if (d !== day) { day = d; html += '<div class="day">' + esc(fmtDay(e.created)) + '</div>'; }
+    const s = txState(e), rec = e.state === 'rec';
+    const st = rec ? '<span class="st rec">● recording</span>' : s === 'busy' ? '<span class="st busy">transcribing</span>' : s === 'fail' ? '<span class="st fail">transcription failed</span>' : s === 'todo' ? '<span class="st">not transcribed</span>' : '';
+    html += '<div class="card" data-id="' + esc(e.id) + '"><div class="when">' + esc(fmtTime(e.created)) + '</div><div class="body"><div class="name">' + esc(entryLabel(e)) + '</div>' +
+      (snippet(e) ? '<div class="snip">' + esc(snippet(e)) + '</div>' : '') +
+      '<div class="meta">' + (e.segs && e.segs.length ? esc(fmtDur(entryDur(e))) + ' · ' : '') + (e.cloud ? '☁ ' : '') + st + '</div></div></div>';
+  }
+  list.innerHTML = html;
+}
+$('list').addEventListener('click', ev => {
+  const c = ev.target.closest('.card'); if (!c || locked) return;
+  const e = byId(c.dataset.id); if (!e) return;
+  if (e.state === 'rec' && recording) { push('rec'); return; }
+  openEntry(e);
+});
+$('searchBox').addEventListener('input', ev => { searchQ = ev.target.value; renderHome(); });
+$('menuBtn').addEventListener('click', () => openSheet());
+
+// ---------- a typed note ----------
+async function newNote() {
+  if (locked || passive || !Vault.isOpen()) return;
+  const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], state: 'done', dur: 0, deleted: false, tx: false, mime: '' };
+  entries.unshift(e);
+  if (!(await persist(e))) { entries.splice(entries.indexOf(e), 1); return; }
+  openEntry(e, { focusText: true });
+  renderHome();
+}
+$('noteBtn').addEventListener('click', newNote);
+
+// ---------- entry view ----------
+let titleTimer = null, textTimer = null, focusTextNext = false;
+function openEntry(e, opts) {
+  if (!e || e.deleted || locked) return;
+  curEntry = e; focusTextNext = !!(opts && opts.focusText);
+  if (current() !== 'entry') push('entry');
+  renderEntry();
+  if (focusTextNext) setTimeout(() => { const t = $('noteText'); if (t) t.focus(); }, 60);
+}
+function leaveEntry() { commitTitle(); commitText(); stopPlayer(); curEntry = null; }
+function renderEntry() {
+  const e = curEntry; if (!e || current() !== 'entry') return;
+  const ti = $('entryTitle'); if (document.activeElement !== ti) ti.value = e.title || '';
+  const segs = e.segs || [], s = txState(e);
+  $('entryMeta').textContent = fmtDay(e.created) + ' · ' + fmtTime(e.created) + (segs.length ? ' · ' + fmtDur(entryDur(e)) + ' · ' + fmtSize(segs.reduce((a, g) => a + (g.size || 0), 0)) : '') + (e.cloud ? ' · in the cloud' : '');
+  const body = $('entryBody');
+  const txt = $('txText'), nt = $('noteText');
+  const typingTx = txt && document.activeElement === txt, typingNote = nt && document.activeElement === nt;
+  if (typingTx || typingNote) { renderTxState(); return; }                               // never redraw under a moving cursor
+  let html = '';
+  if (segs.length) {
+    html += '<div class="player"><div class="row"><button class="play" id="playBtn" aria-label="Play">▶</button><input type="range" id="seek" min="0" max="' + Math.max(1, Math.round(entryDur(e))) + '" value="0" step="250"></div>' +
+      '<div class="times"><span id="tCur">0:00</span><span id="tTot">' + esc(fmtDur(entryDur(e))) + '</span></div>' +
+      '<div class="speed">' + [1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div></div>';
+    html += '<div class="txcard"><div class="t"><span>Transcript</span><span id="txBtns"></span></div><div class="st" id="txState"></div>' +
+      '<textarea id="txText" placeholder="' + (s === 'done' ? '' : 'The transcript appears here.') + '" spellcheck="false">' + esc(entryText(e)) + '</textarea></div>';
+  }
+  html += '<div class="txcard"><div class="t"><span>' + (segs.length ? 'Notes' : 'Note') + '</span></div><textarea id="noteText" placeholder="' + (segs.length ? 'Anything to add in writing…' : 'Write…') + '">' + esc(e.text || '') + '</textarea></div>';
+  body.innerHTML = html;
+  renderTxState(); wirePlayer();
+  const txEl = $('txText'); if (txEl) txEl.addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
+  $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
+}
+function renderTxState() {
+  const e = curEntry, el = $('txState'), bt = $('txBtns'); if (!e || !el) return;
+  const segs = e.segs || [], s = txState(e), done = segs.filter(g => g.st === 'done').length;
+  let msg = '', cls = '';
+  if (s === 'busy') { msg = 'Transcribing… ' + done + ' of ' + segs.length + ' parts done.'; cls = 'busy'; }
+  else if (s === 'fail') { const f = segs.find(g => g.st === 'fail'); msg = 'Transcription failed: ' + (f && f.err || 'unknown error') + (txFailUntil(e) ? ' · trying again ' + txFailUntil(e) : ''); cls = 'fail'; }
+  else if (s === 'todo') msg = e.tx ? (SYNC && session ? 'Waiting to transcribe…' : 'Sign in (Menu) to transcribe.') : 'Not transcribed. The audio is stored encrypted here.';
+  else if (s === 'off') msg = 'Audio only.';
+  else if (s === 'done') msg = (e.tEdited ? 'Edited by you.' : 'Transcribed.') + (e.lang && e.lang !== 'auto' ? '' : '');
+  if (e.state === 'rec') { msg = 'Still recording.'; cls = ''; }
+  el.textContent = msg; el.className = 'st ' + cls;
+  if (segs.length > 1) { const row = document.createElement('div'); row.className = 'segrow'; segs.forEach((g, i) => { const sp = document.createElement('span'); sp.className = g.st === 'done' ? 'done' : g.st === 'busy' ? 'busy' : g.st === 'fail' ? 'fail' : ''; sp.textContent = (i + 1) + ' · ' + fmtDur(g.dur); row.appendChild(sp); }); el.appendChild(row); }
+  bt.innerHTML = '';
+  if (e.state !== 'rec' && segs.some(g => g.st !== 'done')) { const b = document.createElement('button'); b.textContent = s === 'busy' ? 'Transcribing…' : s === 'fail' ? 'Try again' : 'Transcribe'; b.disabled = s === 'busy'; b.addEventListener('click', () => wantTranscribe(e)); bt.appendChild(b); }
+  else if (segs.length && s === 'done') { const b = document.createElement('button'); b.textContent = 'Copy'; b.addEventListener('click', () => copyText(entryText(e))); bt.appendChild(b); }
+}
+function commitTitle() { const e = curEntry; if (!e) return; const v = $('entryTitle').value.trim(); if (v !== (e.title || '')) { e.title = v; persist(e); renderHome(); } }
+function commitText() {
+  clearTimeout(textTimer); const e = curEntry; if (!e) return; let changed = false;
+  const nt = $('noteText'); if (nt && nt.value !== (e.text || '')) { e.text = nt.value; changed = true; }
+  const tx = $('txText'); if (tx && tx.value !== entryText(e)) { e.transcript = tx.value; e.tEdited = true; changed = true; }
+  if (changed) { persist(e); renderHome(); }
+}
+$('entryTitle').addEventListener('input', () => { clearTimeout(titleTimer); titleTimer = setTimeout(commitTitle, 600); });
+$('entryTitle').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); commitTitle(); } });
+$('entryTitle').addEventListener('blur', commitTitle);
+$('entryBack').addEventListener('click', () => back());
+$('entryMore').addEventListener('click', () => {
+  const e = curEntry; if (!e) return;
+  commitTitle(); commitText();
+  const btns = [];
+  if (entryText(e) || e.text) btns.push({ label: 'Share as text', fn: () => shareText(e) });
+  if (e.segs && e.segs.length) btns.push({ label: 'Share the audio', fn: () => shareAudio(e) });
+  if (e.segs && e.segs.some(g => g.st === 'done')) btns.push({ label: 'Transcribe again', fn: () => popup('Transcribe again?', e.tEdited ? 'Your edits to the transcript are replaced by a fresh transcription.' : 'The transcript is made anew.', [{ label: 'Transcribe again', cls: 'primary', fn: () => retranscribe(e) }, { label: 'Cancel', cls: 'quiet' }]) });
+  btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) });
+  btns.push({ label: 'Cancel', cls: 'quiet' });
+  popup(entryLabel(e), '', btns);
+});
+
+// ---------- delete with undo; the records go only after the undo window ----------
+function deleteEntry(e) {
+  if (!e || e.deleted) return;
+  settleToast();
+  pendingDel.add(e.id);
+  if (curEntry === e) closeScreen('entry');
+  renderHome();
+  let undone = false;
+  const expire = async () => { if (undone) return; pendingDel.delete(e.id); e.deleted = true; e.del_at = Date.now(); stopPlayer(); if (await persist(e)) purgeEntryData(e).catch(() => {}); renderHome(); };
+  toast('Entry deleted', { label: 'Undo', fn: () => { undone = true; pendingDel.delete(e.id); renderHome(); }, expire });
+}
+// the audio of a deleted entry goes; the entry itself stays as a sealed delete marker for the cloud copy
+async function purgeEntryData(e) {
+  for (const g of e.segs || []) { await idb.del('segs', g.id).catch(() => {}); await partsDel(g.id).catch(() => {}); }
+}
+
+// ---------- player: one <audio>, the segments played one after the other ----------
+function wirePlayer() {
+  const btn = $('playBtn'); if (!btn) return;
+  btn.addEventListener('click', togglePlay);
+  const seek = $('seek');
+  seek.addEventListener('input', () => { player.seeking = true; $('tCur').textContent = fmtDur(+seek.value); });
+  seek.addEventListener('change', () => { player.seeking = false; seekTo(+seek.value); });
+  for (const b of $('entryBody').querySelectorAll('.speed button')) b.addEventListener('click', () => { player.rate = +b.dataset.rate; if (player.audio) player.audio.playbackRate = player.rate; for (const x of b.parentNode.children) x.classList.toggle('on', x === b); });
+  if (player.e === curEntry && player.audio) { btn.textContent = player.audio.paused ? '▶' : '❚❚'; updateSeek(); }
+}
+const segOffset = (e, i) => e.segs.slice(0, i).reduce((s, g) => s + (g.dur || 0), 0);
+function pState(msg) { const el = $('pState'); if (el) el.textContent = msg || ''; }
+async function segBlob(e, g) {                                   // local first; a segment that only the cloud has is fetched and stored
+  let b = await segGet(g.id, g.mime);
+  if (!b && typeof fetchSeg === 'function') { pState('Downloading part ' + (e.segs.indexOf(g) + 1) + '…'); b = await fetchSeg(e, g); pState(''); }
+  return b;
+}
+async function loadSeg(e, i, at) {
+  if (!e.segs[i]) return false;
+  player.loading = true;
+  try {
+    let url = player.urls.get(i);
+    if (!url) { const b = await segBlob(e, e.segs[i]); if (!b) { pState('This part of the audio is not on this device.'); return false; } url = URL.createObjectURL(b); player.urls.set(i, url); }
+    if (player.e !== e) return false;
+    const a = player.audio; player.i = i; a.src = url; a.playbackRate = player.rate;
+    if (at) { await new Promise(r => { a.addEventListener('loadedmetadata', r, { once: true }); setTimeout(r, 1500); }); try { a.currentTime = at / 1000; } catch (err) {} }
+    return true;
+  } finally { player.loading = false; }
+}
+function ensureAudio() {
+  if (player.audio) return player.audio;
+  const a = new Audio(); a.preload = 'auto';
+  a.addEventListener('timeupdate', updateSeek);
+  a.addEventListener('ended', async () => { const e = player.e; if (!e) return; if (player.i + 1 < e.segs.length) { if (await loadSeg(e, player.i + 1, 0)) a.play().catch(() => {}); } else { player.want = false; const b = $('playBtn'); if (b) b.textContent = '▶'; } });
+  a.addEventListener('play', () => { const b = $('playBtn'); if (b) b.textContent = '❚❚'; });
+  a.addEventListener('pause', () => { const b = $('playBtn'); if (b && !player.want) b.textContent = '▶'; });
+  a.addEventListener('error', () => pState('This part could not be played.'));
+  player.audio = a; return a;
+}
+async function togglePlay() {
+  const e = curEntry; if (!e || !e.segs.length) return;
+  const a = ensureAudio();
+  if (player.e !== e) { stopPlayer(); player.e = e; ensureAudio(); player.i = -1; }
+  if (player.loading) return;
+  if (player.i < 0) { if (!(await loadSeg(e, 0, 0))) return; }
+  if (player.audio.paused) { player.want = true; player.audio.play().catch(err => pState('Could not play: ' + errText(err))); } else { player.want = false; player.audio.pause(); }
+}
+async function seekTo(ms) {
+  const e = curEntry; if (!e || !e.segs.length) return;
+  if (player.e !== e) { stopPlayer(); player.e = e; ensureAudio(); }
+  let i = 0; while (i + 1 < e.segs.length && segOffset(e, i + 1) <= ms) i++;
+  const at = ms - segOffset(e, i), wasPlaying = player.audio && !player.audio.paused;
+  if (!(await loadSeg(e, i, at))) return;
+  if (wasPlaying || player.want) player.audio.play().catch(() => {});
+}
+function updateSeek() {
+  const e = player.e, a = player.audio, seek = $('seek'); if (!e || !a || !seek || player.seeking || curEntry !== e) return;
+  const ms = segOffset(e, player.i) + a.currentTime * 1000;
+  seek.value = Math.round(ms); $('tCur').textContent = fmtDur(ms);
+}
+function stopPlayer() {
+  if (player.audio) { try { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); } catch (e) {} }
+  for (const u of player.urls.values()) URL.revokeObjectURL(u);
+  player.urls.clear(); player.e = null; player.i = -1; player.want = false; player.audio = null;
+}
+
+// ---------- sharing ----------
+function entryAsText(e) {
+  const parts = ['# ' + entryLabel(e), fmtDay(e.created) + ' ' + fmtTime(e.created) + (e.segs && e.segs.length ? ' · ' + fmtDur(entryDur(e)) : '')];
+  if (entryText(e)) parts.push('', entryText(e));
+  if (e.text) parts.push('', e.segs && e.segs.length ? '## Notes' : '', e.text);
+  return parts.filter((p, i) => p !== '' || i > 1).join('\n');
+}
+async function copyText(t) { try { await navigator.clipboard.writeText(t); toast('Copied'); } catch (e) { toast('Could not copy.'); } }
+async function shareText(e) {
+  const text = entryAsText(e);
+  if (navigator.share) { try { await navigator.share({ title: entryLabel(e), text }); return; } catch (err) { if (err && err.name === 'AbortError') return; } }
+  copyText(text);
+}
+async function shareAudio(e) {
+  const files = [];
+  for (const g of e.segs) { const b = await segBlob(e, g); if (b) files.push(new File([b], (e.title || 'memo').replace(/[^\w.-]+/g, '_') + '-' + (e.segs.indexOf(g) + 1) + '.' + extOf(g.mime), { type: g.mime })); }
+  if (!files.length) { toast('No audio on this device.'); return; }
+  if (navigator.share && navigator.canShare && navigator.canShare({ files })) { try { await navigator.share({ files, title: entryLabel(e) }); return; } catch (err) { if (err && err.name === 'AbortError') return; } }
+  for (const f of files) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); }
+}

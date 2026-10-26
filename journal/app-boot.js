@@ -1,0 +1,224 @@
+'use strict';
+/* Journal start-up: become the one active instance, open the vault (asking for the lock if one is
+   set), load the entries, recover an interrupted recording, continue a sign-in link, start the
+   transcription queue and the cloud copy, keep the app up to date. */
+function fatal(msg) { $('list').innerHTML = '<div class="empty"><b>Journal cannot start</b>' + esc(msg) + '</div>'; }
+
+// ---------- one active instance (see app-core.js for the write guard) ----------
+const INSTANCE_LOCK = 'journal-instance', TAKE_KEY = 'journal.take', STAY_KEY = 'journal.stay', WIPE_KEY = 'journal.wipe', LINKHASH_KEY = 'journal.linkHash';
+let instanceRelease = null;
+const bc = 'BroadcastChannel' in self ? new BroadcastChannel('journal') : null;
+function holdInstance(opts) {
+  return new Promise(resolve => {
+    let held = false;
+    navigator.locks.request(INSTANCE_LOCK, opts, lock => {
+      if (!lock) { resolve(false); return; }
+      held = true; lockHeld = true;
+      try { localStorage.setItem(OWNER_KEY, INSTANCE_ID); } catch (e) {}
+      startAlive(); resolve(true);
+      return new Promise(rel => { instanceRelease = rel; });
+    }).catch(() => { lockHeld = false; if (held) instanceLost(); else resolve(false); });
+  });
+}
+function askHolder() {
+  return new Promise(res => {
+    if (!bc) { res(null); return; }
+    const on = e => { if (e.data && e.data.t === 'here') { clearTimeout(t); bc.removeEventListener('message', on); res(!!e.data.visible); } };
+    const t = setTimeout(() => { bc.removeEventListener('message', on); res(null); }, 500);
+    bc.addEventListener('message', on); bc.postMessage({ t: 'who', from: INSTANCE_ID });
+  });
+}
+const AWAY_TEXT = 'Only one can be active at a time, so that nothing gets overwritten.';
+const awayNote = t => { const p = $('away').querySelector('p'); if (p) p.textContent = t; };
+let aliveTimer = null;
+const markAlive = () => { try { localStorage.setItem(ALIVE_KEY, String(Date.now())); } catch (e) {} };
+function startAlive() { clearInterval(aliveTimer); markAlive(); aliveTimer = setInterval(markAlive, 1000); }
+const aliveAge = () => { try { return Date.now() - (+localStorage.getItem(ALIVE_KEY) || 0); } catch (e) { return Infinity; } };
+function waitForRelease() {
+  const ctl = new AbortController(); let timer = setTimeout(() => ctl.abort(), 4000), shown = false;
+  const onBusy = e => { if (e.data && e.data.t === 'busy') { clearTimeout(timer); timer = setTimeout(() => ctl.abort(), 4000); if (!shown) { shown = true; awayNote('The other window is finishing a recording. Journal opens here as soon as it is stored.'); $('away').hidden = false; } } };
+  if (bc) bc.addEventListener('message', onBusy);
+  return holdInstance({ signal: ctl.signal }).then(got => { clearTimeout(timer); if (bc) bc.removeEventListener('message', onBusy); if (shown) { $('away').hidden = true; awayNote(AWAY_TEXT); } return got; });
+}
+let released = false;
+const waitBusy = ms => new Promise(r => { if (!bc) { r(); return; } let t = setTimeout(done, ms); const on = e => { if (!e.data) return; if (e.data.t === 'released') { released = true; done(); } else if (e.data.t === 'busy') { clearTimeout(t); t = setTimeout(done, 4000); } }; function done() { bc.removeEventListener('message', on); r(); } bc.addEventListener('message', on); });
+async function acquireInstance(force) {
+  if (!navigator.locks) {
+    if (!force && (await askHolder()) === true) return false;
+    released = false;
+    if (bc) { bc.postMessage({ t: 'yield', from: INSTANCE_ID }); await waitBusy(1500); }
+    const t0 = Date.now(); let shown = false;
+    while (!released && aliveAge() < 30000 && Date.now() - t0 < 120000) {
+      if (!shown) { shown = true; awayNote('The other window is finishing a recording. Journal opens here as soon as it is stored.'); $('away').hidden = false; }
+      await waitBusy(2000);
+    }
+    if (shown) { $('away').hidden = true; awayNote(AWAY_TEXT); }
+    try { localStorage.setItem(OWNER_KEY, INSTANCE_ID); } catch (e) {}
+    instanceRelease = () => {}; lockHeld = true;
+    startAlive(); return true;
+  }
+  if (await holdInstance({ ifAvailable: true })) return true;
+  if (!bc && !force) return false;
+  if (!force && (await askHolder()) === true) return false;
+  if (bc) bc.postMessage({ t: 'yield', from: INSTANCE_ID });
+  if (await waitForRelease()) return true;
+  const ans = await askHolder();
+  if (ans === true) return false;
+  if (ans === false) { if (bc) bc.postMessage({ t: 'yield', from: INSTANCE_ID }); if (await waitForRelease()) return true; if ((await askHolder()) != null) return false; }
+  const t0 = Date.now();
+  while (aliveAge() < 30000 && Date.now() - t0 < 120000) { if (await waitForRelease()) return true; if ((await askHolder()) === true) return false; }
+  return holdInstance({ steal: true });
+}
+function stepAside() { if (!Vault.lockType()) return; try { sessionStorage.setItem(STAY_KEY, '1'); } catch (e) {} location.reload(); }
+function showAway() {
+  for (const id of COVERED) $(id).inert = true;
+  $('toast').classList.remove('show'); $('away').hidden = false;
+}
+function stopEverything() { clearTimeout(syncTimer); clearTimeout(txTimer); }
+function instanceLost() { if (passive) return; passive = true; lockHeld = false; clearInterval(aliveTimer); try { localStorage.removeItem(ALIVE_KEY); } catch (e) {} showAway(); stopEverything(); abortSync(); abortTranscribe(); if (recording) stopRecording(); stepAside(); }
+// another window takes over: a running recording is stopped and stored first, then this one lets go
+async function yieldInstance() {
+  showAway();
+  const t0 = Date.now(); let said = 0;
+  if (curEntry) { try { commitTitle(); commitText(); } catch (e) {} }
+  if (recording) stopRecording();
+  const busy = () => recording || recFinishing || segWrites > 0 || persistQueued > 0 || backupBusy;
+  while (busy() || ((syncing || txBusy) && Date.now() - t0 < 3000)) {
+    if (bc && Date.now() - said > 900) { said = Date.now(); bc.postMessage({ t: 'busy', from: INSTANCE_ID }); }
+    await sleep(100);
+  }
+  abortSync(); abortTranscribe();
+  try { await persistChain.p; } catch (e) {}
+  passive = true; lockHeld = false; stopEverything(); clearInterval(aliveTimer);
+  try { localStorage.removeItem(ALIVE_KEY); } catch (e) {}
+  if (instanceRelease) { instanceRelease(); instanceRelease = null; }
+  if (bc) bc.postMessage({ t: 'released', from: INSTANCE_ID });
+  stepAside();
+}
+if (bc) bc.addEventListener('message', e => {
+  const m = e.data || {}; if (m.from === INSTANCE_ID) return;
+  if (m.t === 'who' || m.t === 'yield') markNeeded = true;
+  if (passive || !instanceRelease) return;
+  if (m.t === 'who') bc.postMessage({ t: 'here', visible: !document.hidden, from: INSTANCE_ID });
+  if (m.t === 'yield') yieldInstance();
+});
+$('awayBtn').addEventListener('click', () => { try { sessionStorage.setItem(TAKE_KEY, '1'); } catch (e) {} reloadPage(); });
+
+// ---------- updates ----------
+let swReg = null, updateReady = false, swTookOver = false, lastUpdateCheck = 0, swSwitching = false;
+const hadController = 'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', () => {
+  if (swSwitching) return;
+  if (hadController) { swTookOver = true; updateReady = true; afterNav(); }
+});
+function noteWaiting(r) { if (r && r.waiting && navigator.serviceWorker.controller) { updateReady = true; afterNav(); } }
+function registerSW() {
+  let allow = location.protocol === 'https:'; try { allow = allow || localStorage.getItem('journal.sw') === '1'; } catch (e) {}
+  if (!('serviceWorker' in navigator) || !allow) return;
+  navigator.serviceWorker.register('sw.js').then(r => {
+    swReg = r; noteWaiting(r);
+    r.addEventListener('updatefound', () => { const w = r.installing; if (w) w.addEventListener('statechange', () => { if (w.state === 'installed') noteWaiting(r); }); });
+  }).catch(() => {});
+}
+function checkForUpdate() {
+  if (!swReg || Date.now() - lastUpdateCheck < 3600000) return;
+  lastUpdateCheck = Date.now(); swReg.update().catch(() => {});
+}
+function swSwitch() {
+  if (!swReg || !swReg.waiting) return Promise.resolve();
+  swSwitching = true;
+  return new Promise(res => { const t = setTimeout(res, 3000); navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(t); res(); }, { once: true }); try { swReg.waiting.postMessage({ t: 'skip' }); } catch (e) { clearTimeout(t); res(); } });
+}
+function afterNav() {
+  if (!updateReady || locked || passive || !Vault.isOpen()) return;
+  if (current() !== 'home' || stack.length > 1 || workInFlight() || (Vault.lockType() && !swTookOver) || persistFailed) return;
+  persistChain.p.then(async () => { if (persistFailed || workInFlight() || current() !== 'home') return; await swSwitch(); location.reload(); });
+}
+
+async function boot() {
+  const vt = $('vtag'); if (vt) vt.textContent = VERSION;
+  let tokens = null, linkMsg = '', search = '';
+  let h = location.search + location.hash; if (!location.search && !location.hash) { try { h = sessionStorage.getItem(LINKHASH_KEY) || ''; sessionStorage.removeItem(LINKHASH_KEY); } catch (e) {} }
+  try {
+    const qi = h.indexOf('?'), hi = h.indexOf('#');
+    const qs = new URLSearchParams(qi >= 0 ? h.slice(qi + 1, hi > qi ? hi : undefined) : ''), code = qs.get('code');
+    const sentence = c => c === 'otp_expired' ? 'This sign-in link has expired or was already used. Request a new one in the menu.' : c === 'access_denied' ? 'The sign-in link was refused. Request a new one in the menu.' : 'The sign-in link could not be used. Request a new one in the menu.';
+    if (code) tokens = { code };
+    else if (qs.get('error') || qs.get('error_code')) linkMsg = sentence(qs.get('error_code') || qs.get('error'));
+    for (const k of ['code', 'error', 'error_code', 'error_description']) qs.delete(k);
+    const rest = qs.toString(); search = rest ? '?' + rest : '';
+    const qp = new URLSearchParams(hi >= 0 ? h.slice(hi + 1) : '');
+    if (!tokens && qp.get('access_token') && qp.get('refresh_token')) tokens = { access_token: qp.get('access_token'), refresh_token: qp.get('refresh_token') };
+    else if (!linkMsg && (qp.get('error') || qp.get('error_code'))) linkMsg = sentence(qp.get('error_code') || qp.get('error'));
+  } catch (e) {}
+  history.replaceState(histState(), '', location.pathname + search);
+  applyStack();
+
+  let asked = 0; try { asked = +localStorage.getItem(LINK_KEY) || 0; } catch (e) {}
+  const linkFresh = asked && Math.abs(Date.now() - asked) <= 3600000;
+  if (linkMsg && !linkFresh) linkMsg = '';
+  if (tokens && !linkFresh) { tokens = null; linkMsg = 'This sign-in link was not requested from this browser, or it is older than an hour. Request a new one in the menu.'; }
+  let force = false, stay = false, wipe = false;
+  try { wipe = sessionStorage.getItem(WIPE_KEY) === '1'; force = sessionStorage.getItem(TAKE_KEY) === '1' || wipe; sessionStorage.removeItem(TAKE_KEY); stay = sessionStorage.getItem(STAY_KEY) === '1'; if (force) { sessionStorage.removeItem(STAY_KEY); stay = false; } } catch (e) {}
+  if (stay && !tokens) { passive = true; showAway(); return; }
+  let mine = true; try { mine = await acquireInstance(force || !!tokens); } catch (e) { mine = true; }
+  if (!mine) { passive = true; showAway(); return; }
+  if (wipe) { try { await wipeNow(); } catch (e) {} try { sessionStorage.removeItem(WIPE_KEY); } catch (e) {} }
+  try { if (!(await idb.get('meta', 'keys'))) await idb.wipe(); } catch (e) {}      // no key record: nothing stored can be read; leftovers go before a new key is made
+
+  let state;
+  try { state = await Vault.load(metaStore); } catch (e) {
+    fatal('The storage of this browser could not be opened (' + errText(e) + '). Private windows and blocked site data prevent it.');
+    popup('Journal cannot start', errText(e) + ' You can erase everything stored here and start again.', [{ label: 'Erase and reset', cls: 'danger', fn: () => wipeEverything().then(() => location.reload(), () => {}) }, { label: 'Not now', cls: 'quiet' }]);
+    return;
+  }
+  if (state === 'locked') { showLock(false); await whenUnlocked(); if (!isOwner()) { instanceLost(); return; } }
+  try { await loadEntries(); } catch (e) { fatal('The stored entries could not be read (' + errText(e) + ').'); return; }
+  await loadSession();
+  if (tokens) { try { linkMsg = await adoptLink(tokens); } catch (e) { linkMsg = 'The sign-in link could not be used.'; } }
+  try { await recoverRecordings(); } catch (e) {}
+  for (const e of entries) { if (e.broken || e.deleted) continue; let ch = false; for (const g of e.segs || []) if (g.st === 'busy') { g.st = 'todo'; ch = true; } if (ch) await persist(e, { quiet: true }); }      // a transcription cut off by a restart
+  const broken = entries.filter(e => e.broken).length;
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(ok => { storageAtRisk = !ok; renderInstallBox(); }).catch(() => {});
+  else storageAtRisk = true;
+  renderAll();
+  if (linkMsg) popup('Sign-in link', linkMsg, [{ label: 'OK', cls: 'primary' }]);
+  else if (broken) toast(broken + ' stored entr' + (broken > 1 ? 'ies' : 'y') + ' could not be decrypted.');
+
+  let resume = ''; try { resume = sessionStorage.getItem(RESUME_KEY) || ''; sessionStorage.removeItem(RESUME_KEY); } catch (e) {}
+  const re = resume && byId(resume); if (re && !re.deleted && !linkMsg) openEntry(re);
+
+  if (session) { scheduleTranscribe(1500); syncNow().then(() => { if (tokens && !linkMsg && (keyNeed === 'create' || keyNeed === 'enter')) openSheet(); }); }
+  setTimeout(resealAll, 3000); setTimeout(housekeeping, 8000);
+  registerSW();
+}
+// Tidying up, only while nothing else is going on: audio records no live entry refers to (a delete
+// that was interrupted), and parts older than a day that no recording continues.
+async function housekeeping() {
+  if (!Vault.isOpen() || locked || passive || recording) { setTimeout(housekeeping, 60000); return; }
+  const idle = () => !locked && !passive && !recording && segWrites === 0;
+  try {
+    const ref = new Set(); for (const e of live()) for (const g of e.segs || []) ref.add(g.id);
+    for (const id of await idb.keys('segs')) { if (!idle()) return; if (!ref.has(id) && !pendingDel.size) await idb.del('segs', id); }
+    const old = Date.now() - 86400000;
+    for (const k of await idb.keys('parts')) {
+      if (!idle()) return;
+      const r = await idb.get('parts', k); if (!r) continue;
+      let t = 0; try { const seg = k.slice(0, k.indexOf('|')), n = +k.slice(k.indexOf('|') + 1); t = (await Vault.openJson(r.m, pLabel(seg, n) + '|m')).t || 0; } catch (e) {}
+      if (t < old) await idb.del('parts', k);
+    }
+    // delete markers older than 60 days whose objects are gone (or were never in the cloud) can go for good
+    const cut = Date.now() - 60 * 86400000;
+    for (const e of entries.slice()) if (e.deleted && (e.del_at || 0) < cut && (!e.segs || !e.segs.length || e.purged || !e.cloud) && (!session || (e.pushed_at || 0) >= (e.updated_at || 0))) { await idb.del('entries', e.id); entries.splice(entries.indexOf(e), 1); }
+  } catch (e) {}
+}
+window.addEventListener('storage', e => {
+  if (e.key === OWNER_KEY && e.newValue && e.newValue !== INSTANCE_ID) { markNeeded = true; if (!passive && !navigator.locks) { instanceLost(); return; } }
+});
+window.addEventListener('online', () => { syncNow(); scheduleTranscribe(); });
+setInterval(() => { if (passive) return; renderSyncLine(); syncNow(); scheduleTranscribe(); }, 60000);
+
+window.journalDebug = { get entries() { return entries; }, get session() { return session; }, get keyNeed() { return keyNeed; }, get syncState() { return syncState + (syncMsg ? ': ' + syncMsg : ''); },
+  get busy() { return workInFlight(); }, get passive() { return passive; }, get locked() { return locked; }, get recording() { return recording; }, get updateReady() { return updateReady; },
+  syncNow, syncRetry, idb, segGet, Vault, relock, resealAll, housekeeping, transcribeNow, startRecording, stopRecording, pauseRecording, makeBackup, readBackup, recoverRecordings, persist, settings };
+boot().catch(e => fatal('Unexpected error: ' + errText(e)));
