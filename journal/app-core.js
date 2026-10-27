@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v11';
+const VERSION = 'v12';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -42,14 +42,14 @@ function writeGuard() {
 // own, stored and encrypted the moment it ends, so a crash loses at most the open segment.
 // engine: 'phone' (the phone's own speech recognition, live while recording and while dictating),
 // 'key' (the user's own key for a service), 'cloud' (the app's own cloud function, needs sign-in)
-let settings = { lockAfter: 60, transcribe: 'ask', segMin: 5, lang: 'auto', engine: 'phone' };
+let settings = { lockAfter: 60, transcribe: 'auto', segMin: 5, lang: 'auto', engine: 'phone' };
 const LOCK_AFTER = [5, 60, 300, 1800], SEG_MIN = [2, 5, 10], LANGS = ['auto', 'de', 'en'];
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SET_KEY) || '{}')); } catch (e) {}
 if (!LOCK_AFTER.includes(+settings.lockAfter)) settings.lockAfter = 60;      // only the offered values: nothing in plain storage can switch the lock off
 if (!SEG_MIN.includes(+settings.segMin)) settings.segMin = 5;
 if (!['ask', 'auto', 'off'].includes(settings.transcribe)) settings.transcribe = 'ask';
 if (!LANGS.includes(settings.lang)) settings.lang = 'auto';
-if (!['phone', 'key', 'cloud'].includes(settings.engine)) settings.engine = 'phone';
+if (!['phone', 'claude', 'key', 'cloud'].includes(settings.engine)) settings.engine = 'phone';
 const saveSettings = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch (e) {} };
 
 // ---------- IndexedDB ----------
@@ -165,8 +165,8 @@ function joinOverlap(prev, next) {
   if (!A.length) return B.join(' '); if (!B.length) return A.join(' ');
   const norm = w => w.toLowerCase().replace(/[.,!?;:]+$/, '');
   for (let k = Math.min(A.length, B.length); k > 0; k--) {
-    let ok = true; for (let i = 0; i < k; i++) if (norm(A[A.length - k + i]) !== norm(B[i])) { ok = false; break; }
-    if (ok) return A.concat(B.slice(k)).join(' ');
+    let same = 0; for (let i = 0; i < k; i++) if (norm(A[A.length - k + i]) === norm(B[i])) same++;
+    if (same === k || (k >= 4 && same >= Math.ceil(k * 0.75))) return A.concat(B.slice(k)).join(' ');
   }
   return A.concat(B).join(' ');
 }
@@ -182,7 +182,7 @@ const txState = e => {
 };
 
 // ---------- screens and the back button ----------
-const BASE = ['home', 'rec', 'entry'];
+const BASE = ['home', 'entry'];
 const stack = ['home'];
 let popupState = null;
 function applyStack() {
@@ -204,7 +204,6 @@ function closeScreen(name) { const go = () => { if (locked) { navQueue.push(go);
 function leave(name) {
   if (name === 'entry') leaveEntry();
   if (name === 'sheet') sheetClosed();
-  if (name === 'rec') leaveRec();
   if (name === 'popup') { const p = popupState; popupState = null; if (p && p.after) setTimeout(p.after, 0); }
 }
 window.addEventListener('popstate', e => {
@@ -212,14 +211,12 @@ window.addEventListener('popstate', e => {
   if (/[#&?](access_token|code|error|error_code)=/.test(location.hash + location.search)) { linkOpened(); return; }
   if (locked && !lockTop()) { history.pushState(histState(), ''); drainNav(); return; }
   if (!st || st.b !== BOOT_ID) {
-    if (stack.length > 1) { if (stack[stack.length - 1] === 'rec' && recording) { history.pushState(histState(), ''); drainNav(); return; } leave(stack.pop()); history.replaceState(histState(), ''); applyStack(); renderAll(); }
+    if (stack.length > 1) { leave(stack.pop()); history.replaceState(histState(), ''); applyStack(); renderAll(); }
     else history.back();
     drainNav(); return;
   }
   const depth = st.n || 1;
   if (depth > stack.length) { history.go(stack.length - depth); return; }
-  // Back never ends a recording: the recording screen stays until Stop is tapped
-  if (stack.length > depth && stack.includes('rec') && recording && stack.indexOf('rec') >= depth) { history.pushState(histState(), ''); while (stack.length > depth + 1) leave(stack.pop()); applyStack(); drainNav(); return; }
   while (stack.length > depth && stack.length > 1) leave(stack.pop());
   applyStack(); renderAll(); afterNav();
   drainNav();

@@ -22,7 +22,7 @@ function renderHome() {
   $('searchRow').hidden = all.length < 4 && !q;
   const shown = all.filter(e => matches(e, q));
   if (!shown.length) {
-    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>Tap the microphone and talk, for as long as you like. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
+    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>Tap the microphone and talk; the words appear as you go. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
     return;
   }
   let html = '', day = '';
@@ -78,8 +78,15 @@ async function newEntry(opts) {
   if (opts && opts.dictate) setTimeout(() => { if (curEntry === e) startDictation(); }, 80);
 }
 $('noteBtn').addEventListener('click', () => newEntry());
-// the microphone: one gesture, one meaning. A tap records; the text follows through the engine.
-$('recBtn').addEventListener('click', () => startRecording());
+// The microphone: one tap, and the text window opens with the words flowing in. What runs behind
+// it follows the engine: the phone's recognition (text live), the Claude app (a new chat opens
+// there), or a key / the cloud (the audio records in the background, each part's text arrives
+// below as it is done, the recording stays playable).
+$('recBtn').addEventListener('click', () => {
+  if (settings.engine === 'claude') { openClaude(''); return; }
+  if (settings.engine === 'phone') { newEntry({ dictate: true }); return; }
+  startRecording();
+});
 
 // ---------- entry view ----------
 let titleTimer = null, textTimer = null, focusTextNext = false;
@@ -111,7 +118,7 @@ function renderEntry() {
   }
   html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate with the phone\'s speech recognition">' + (dictOn ? '■ Stop' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" placeholder="Write, or tap Dictate…">' + esc(e.text || '') + '</textarea></div>';
   body.innerHTML = html;
-  renderTxState(); wirePlayer();
+  renderRecBar(); renderTxState(); wirePlayer();
   $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
   $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : startDictation());
   $('claudeBtn').addEventListener('click', () => { commitTitle(); commitText(); if (!entryText(e)) { toast('Nothing to send yet.'); return; } openInClaude(e); });
@@ -128,7 +135,8 @@ const SR = self.SpeechRecognition || self.webkitSpeechRecognition;
 // resultIndex, so appending per event duplicates lines).
 let dictRec = null, dictOn = false, dictBase = '', dictFinal = '', dictSess = '', dictEntry = null;
 function dictLang() { const l = settings.lang; return l === 'de' ? 'de-DE' : l === 'en' ? 'en-US' : (navigator.language && /^(de|en)/.test(navigator.language) ? navigator.language : 'de-DE'); }
-const dictText = interim => { const t = joinOverlap(dictFinal, (dictSess + ' ' + (interim || '')).trim()); return dictBase + t + (interim ? ' ' : ''); };
+// the interim words repeat the running session's words: overlaid, never appended
+const dictText = interim => { const t = joinOverlap(joinOverlap(dictFinal, dictSess), interim || ''); return dictBase + t + (interim ? ' ' : ''); };
 function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictText(interim); nt.scrollTop = nt.scrollHeight; }
 function startDictation() {
   const e = curEntry; if (!e || locked || passive || recording) return;
@@ -193,13 +201,15 @@ function stopDictation() {
   const b = $('dictBtn'); if (b) b.textContent = '🎙 Dictate';
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden && dictOn) stopDictation(); });
-// hand an entry to Claude: opens the Claude app (or claude.ai) with the entry as the first message
-function openInClaude(e) {
-  const text = entryAsText(e);
-  const q = 'Here is an entry from my journal. Hold it for now; I will tell you what I want to do with it.\n\n' + text;
-  const url = 'https://claude.ai/new?q=' + encodeURIComponent(q.slice(0, 6000));
-  const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();      // a real link click inside the tap: opens the Claude app where it is installed, else claude.ai
+// Open the Claude app (or claude.ai) on a new chat, with text as the first message when given.
+// Android: an intent URL opens the installed app directly and falls back to the web site.
+function openClaude(q) {
+  const path = '/new' + (q ? '?q=' + encodeURIComponent(q.slice(0, 6000)) : '');
+  const web = 'https://claude.ai' + path;
+  if (/Android/i.test(navigator.userAgent)) { location.href = 'intent://claude.ai' + path + '#Intent;scheme=https;package=com.anthropic.claude;S.browser_fallback_url=' + encodeURIComponent(web) + ';end'; return; }
+  const a = document.createElement('a'); a.href = web; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
 }
+function openInClaude(e) { openClaude('Here is an entry from my journal. Hold it for now; I will tell you what I want to do with it.\n\n' + entryAsText(e)); }
 function renderTxState() {
   const e = curEntry, el = $('txState'), bt = $('txBtns'); if (!e || !el) return;
   const segs = e.segs || [], s = txState(e), done = segs.filter(g => g.st === 'done').length;

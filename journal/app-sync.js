@@ -22,7 +22,7 @@ const STT = {
 const sttUrl = p => (CFG.sttEndpoints && CFG.sttEndpoints[p]) || STT[p].url;      // sttEndpoints: only for the test mock
 // can stored audio be transcribed right now? (the phone's recognition only listens live)
 const txAvailable = () => settings.engine === 'key' ? !!stt : settings.engine === 'cloud' ? !!(SYNC && session) : false;
-const txEngineLabel = () => settings.engine === 'key' ? (stt ? STT[stt.provider].name.split(' (')[0] : 'your own key (not set yet)') : settings.engine === 'cloud' ? 'your cloud function' : 'the phone\'s speech recognition';
+const txEngineLabel = () => settings.engine === 'key' ? (stt ? STT[stt.provider].name.split(' (')[0] : 'your own key (not set yet)') : settings.engine === 'cloud' ? 'your cloud function' : settings.engine === 'claude' ? 'the Claude app' : 'the phone\'s speech recognition';
 async function loadStt() { stt = null; try { const r = await idb.get('meta', 'stt'); if (r) stt = await Vault.openJson(r.data, 'jn|stt'); } catch (e) { stt = null; } if (stt && !STT[stt.provider]) stt = null; }
 async function saveStt(cfg) { stt = cfg; if (cfg) await idb.put('meta', { id: 'stt', data: await Vault.sealJson(cfg, 'jn|stt') }); else await idb.del('meta', 'stt'); }
 const jwtPayload = t => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
@@ -146,7 +146,7 @@ function askTranscribe(e) {
 }
 function wantTranscribe(e) {
   if (!txAvailable()) {
-    if (settings.engine === 'phone') popup('This recording has no text yet', 'The phone\'s speech recognition cannot read a stored recording; on most phones it cannot even listen while the phone records. For text with the phone engine, TAP the microphone and dictate (that runs as long as you like). To turn this recording into text, choose "Own key" or "Cloud function" under Menu, Transcription.', [{ label: 'Open the menu', cls: 'primary', fn: openSheet }, { label: 'OK', cls: 'quiet' }]);
+    if (settings.engine === 'phone' || settings.engine === 'claude') popup('This recording has no text yet', 'The phone\'s speech recognition cannot read a stored recording; on most phones it cannot even listen while the phone records. For text with the phone engine, TAP the microphone and dictate (that runs as long as you like). To turn this recording into text, choose "Own key" or "Cloud function" under Menu, Transcription.', [{ label: 'Open the menu', cls: 'primary', fn: openSheet }, { label: 'OK', cls: 'quiet' }]);
     else { toast(settings.engine === 'key' ? 'Enter your key under Menu, Transcription.' : 'Sign in under Menu, Cloud.'); openSheet(); }
     return;
   }

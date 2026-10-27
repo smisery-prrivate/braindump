@@ -76,24 +76,20 @@
   .secondary:disabled { opacity: .45; }
   .secondary.del { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
 
-  /* recording */
-  #rec { background: #1f1b2e; color: #fff; }
-  #rec .col { align-items: center; justify-content: center; gap: 18px; padding: 20px; }
-  .rectime { font-size: 56px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
-  .recstate { font-size: 15px; color: #c9c3d8; min-height: 20px; display: flex; align-items: center; gap: 8px; }
-  .recdot { width: 12px; height: 12px; border-radius: 50%; background: var(--rec); animation: pulse 1.2s ease-in-out infinite; }
-  .recdot.paused { background: #c9c3d8; animation: none; }
+  /* recording bar inside the entry */
+  .recbar { margin: 0 16px 10px; padding: 10px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+  .recbar .row { display: flex; align-items: center; gap: 10px; }
+  .recdot { width: 12px; height: 12px; border-radius: 50%; background: var(--rec); animation: pulse 1.2s ease-in-out infinite; flex: none; }
+  .recdot.paused { background: var(--muted); animation: none; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
-  .meter { width: 100%; max-width: 320px; height: 56px; display: flex; align-items: center; gap: 3px; justify-content: center; }
-  .meter i { display: block; width: 5px; height: 6px; border-radius: 3px; background: #8f7fc4; transition: height .08s; }
-  .recinfo { font-size: 13px; color: #9b94ad; text-align: center; max-width: 320px; line-height: 1.5; }
-  .reclive { font-size: 15px; color: #e6e1f0; text-align: center; max-width: 340px; line-height: 1.45; min-height: 44px; max-height: 88px; overflow: hidden; }
-  .reclive.err { color: #f0b6a6; font-size: 13px; }
-  .recbot { display: flex; align-items: center; gap: 18px; margin-top: 10px; }
-  .recbtn { width: 64px; height: 64px; border-radius: 50%; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.1); color: #fff; font-size: 15px; font-weight: 600; }
-  .recbtn:disabled { opacity: .4; }
-  #recStop { width: 92px; height: 92px; border: 6px solid #fff; background: transparent; padding: 0; display: flex; align-items: center; justify-content: center; }
-  #recStop::after { content: ''; width: 34px; height: 34px; border-radius: 6px; background: var(--rec); }
+  .rectime { font-variant-numeric: tabular-nums; font-weight: 700; flex: 1; }
+  .recbar .pill.stop { background: var(--rec); color: #fff; border-color: transparent; font-weight: 700; }
+  .meter { height: 22px; display: flex; align-items: center; gap: 3px; margin-top: 6px; }
+  .meter i { display: block; width: 4px; height: 4px; border-radius: 2px; background: #8f7fc4; transition: height .08s; }
+  .recinfo { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .reclive { font-size: 14px; color: var(--ink); margin-top: 6px; line-height: 1.45; max-height: 66px; overflow: hidden; }
+  .reclive.err { color: var(--danger); font-size: 12px; }
+  .quietbtn { margin-top: 6px; height: 32px; border: none; background: transparent; color: var(--muted); font-size: 13px; padding: 0 4px; }
 
   /* entry view */
   #entryTitle { flex: 1; min-width: 0; height: 44px; border: 1px solid transparent; border-radius: 12px; background: transparent; padding: 0 10px; font-size: 17px; font-weight: 600; }
@@ -207,21 +203,6 @@
   </div>
 </section>
 
-<section id="rec" class="screen" hidden>
-  <div class="col">
-    <div class="recstate"><span class="recdot" id="recDot"></span><span id="recState">Recording</span></div>
-    <div class="rectime" id="recTime">0:00</div>
-    <div class="meter" id="meter"></div>
-    <div class="reclive" id="recLive" hidden></div>
-    <div class="recinfo" id="recInfo">Every few minutes a finished part is encrypted and stored. Keep the screen on.</div>
-    <div class="recbot">
-      <button id="recPause" class="recbtn">Pause</button>
-      <button id="recStop" class="recbtn" aria-label="Stop recording"></button>
-      <button id="recDiscard" class="recbtn">Discard</button>
-    </div>
-  </div>
-</section>
-
 <section id="entry" class="screen" hidden>
   <div class="col">
     <header class="top">
@@ -230,6 +211,13 @@
       <button id="entryMore" class="icon" aria-label="More">⋯</button>
     </header>
     <div id="entryMeta" class="subline"></div>
+    <div id="recBar" class="recbar" hidden>
+      <div class="row"><span class="recdot" id="recDot"></span><span id="recState">Recording</span><span class="rectime" id="recTime">0:00</span><button id="recPause" class="pill">Pause</button><button id="recStop" class="pill stop">Stop</button></div>
+      <div class="meter" id="meter"></div>
+      <div class="reclive" id="recLive" hidden></div>
+      <div class="recinfo" id="recInfo"></div>
+      <button id="recDiscard" class="quietbtn">Discard this recording</button>
+    </div>
     <div id="entryBody" class="scroll"></div>
   </div>
 </section>

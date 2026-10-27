@@ -5,7 +5,7 @@
    flight: the lock screen covers the app, the microphone keeps going, Stop needs the unlock. */
 let locked = false, softLock = false, unlocking = false, hiddenAt = 0, pinStep = false, hideTimer = null, softTimer = null, storageAtRisk = false;
 const unlockWaiters = [];
-const COVERED = ['home', 'rec', 'entry', 'sheet'];
+const COVERED = ['home', 'entry', 'sheet'];
 const workInFlight = () => recording || recFinishing || segWrites > 0 || persistQueued > 0 || txBusy || syncing || backupBusy;
 
 // ---------- lock screen ----------
@@ -142,7 +142,7 @@ function renderSheet() {
     '<div class="hint">Shorter parts mean less is lost if the phone dies, and the transcript arrives sooner; a change applies to the next recording.</div>' +
     '<h2>Backup</h2><div id="backupBox"></div>' +
     '<h2>App</h2><div id="installBox"></div>' +
-    '<div class="hint">Tap the microphone to record. Everything is encrypted on this device and encrypted again before it is uploaded. Audio leaves the device only for transcription, and only when you ask for it. No cookies, no trackers, no third-party scripts.</div>' +
+    '<div class="hint">Everything is encrypted on this device and encrypted again before it is uploaded. Audio leaves the device only for transcription, and only when you ask for it. No cookies, no trackers, no third-party scripts.</div>' +
     '<div class="version">Journal · ' + VERSION + '</div>';
   renderTxBox(); renderSyncBox(); renderLockBox(); renderBackupBox(); renderInstallBox();
   $('setSeg').value = String(settings.segMin); $('setSeg').addEventListener('change', e => { settings.segMin = +e.target.value; saveSettings(); });
@@ -151,20 +151,20 @@ function renderTxBox() {
   const box = $('txBox'); if (!box) return;
   const eng = settings.engine;
   let engBox = '';
-  if (eng === 'phone') engBox = '<div class="hint">The phone\'s own speech recognition (Google on Android, Apple on iPhone). Free, no key, no account; that audio goes to Google or Apple. Its limits: on most Android phones it cannot listen while the phone records, so a recording gets no text; it stops at every pause; it cannot read a stored recording. It works for the Dictate button inside an entry. For recordings with text, choose a key.</div>';
+  if (eng === 'phone') engBox = '<div class="hint">The microphone opens the text window and the phone\'s own speech recognition (Google on Android, Apple on iPhone) writes as you speak. Free, no key, no account; that audio goes to Google or Apple. No audio file is kept, and it pauses briefly whenever you do.</div>';
+  else if (eng === 'claude') engBox = '<div class="hint">The microphone opens a new chat in the Claude app, where you dictate. Paste the result into an entry with the pen. A workaround until a key is set.</div>';
   else if (eng === 'key') engBox = stt ? '<div class="statecard"><div class="t">✓ ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Memos and dictated notes go straight from this phone to the service and the text comes back. The service may keep audio for a while under its own terms.</div></div><button class="btn quiet" id="sttOff">Remove the key</button>'
     : '<p>Mistral (Paris) transcribes German and English for a few cents per hour: sign up at console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create. (Mistral\'s free Experiment plan lets them train on your audio, so take the paid one for a journal.) The key is stored encrypted on this device and used only from here.</p>' +
       '<select id="sttProv">' + Object.keys(STT).map(k => '<option value="' + k + '">' + esc(STT[k].name) + '</option>').join('') + '</select>' +
       '<input id="sttKey" type="password" autocomplete="off" placeholder="API key"><button class="btn primary" id="sttSave">Use this key</button>';
   else engBox = SYNC ? '<div class="hint">' + (session ? 'Signed in: memos and dictated notes go to the transcription function in your own cloud project; no key is kept on the phone.' : 'Sign in under Cloud below. The transcription function in your own cloud project holds the key; nothing is kept on the phone.') + '</div>' : '<div class="hint">The cloud is not switched on in this version.</div>';
-  box.innerHTML = '<div class="rowopt"><span>Engine</span><select id="setEngine"><option value="phone">Phone\'s speech recognition</option><option value="key">Own key (Mistral, …)</option><option value="cloud">Own cloud function</option></select></div>' + engBox +
-    '<div class="rowopt"><span>Memos</span><select id="setTx">' + (eng === 'phone' ? '<option value="ask">Transcribe live while recording</option>' : '<option value="ask">Ask after each memo</option><option value="auto">Automatically</option>') + '<option value="off">Never (audio only)</option></select></div>' +
+  box.innerHTML = '<div class="rowopt"><span>Engine</span><select id="setEngine"><option value="phone">Phone\'s speech recognition</option><option value="claude">Claude app (dictate there)</option><option value="key">Own key (Mistral, …)</option><option value="cloud">Own cloud function</option></select></div>' + engBox +
+    (eng === 'key' || eng === 'cloud' ? '<div class="rowopt"><span>Recordings</span><select id="setTx"><option value="auto">Text automatically</option><option value="ask">Ask after each one</option><option value="off">Audio only</option></select></div>' : '') +
     '<div class="rowopt"><span>Spoken language</span><select id="setLang"><option value="auto">German and English (detect)</option><option value="de">German</option><option value="en">English</option></select></div>' +
     (eng === 'phone' ? '<div class="hint">The phone\'s recognition listens in one language at a time; "detect" uses the phone\'s language.</div>' : '') +
     '<div class="hint" id="sttHint"></div>';
-  $('setEngine').value = eng; $('setEngine').addEventListener('change', e => { settings.engine = e.target.value; if (settings.engine === 'phone' && settings.transcribe === 'auto') settings.transcribe = 'ask'; saveSettings(); abortTranscribe(); renderTxBox(); renderSyncLine(); scheduleTranscribe(); });
-  $('setTx').value = eng === 'phone' && settings.transcribe === 'auto' ? 'ask' : settings.transcribe;
-  $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } });
+  $('setEngine').value = eng; $('setEngine').addEventListener('change', e => { settings.engine = e.target.value; saveSettings(); abortTranscribe(); renderTxBox(); renderSyncLine(); scheduleTranscribe(); });
+  if ($('setTx')) { $('setTx').value = settings.transcribe; $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } }); }
   $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); });
   if ($('sttSave')) $('sttSave').addEventListener('click', async () => {
     const key = $('sttKey').value.trim(), provider = $('sttProv').value, hint = $('sttHint');

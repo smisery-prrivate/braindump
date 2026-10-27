@@ -22,9 +22,9 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check(await page.isVisible('#recBtn'), 'record button visible');
 
   // 2. record a short memo with segments every ~3 s (engine "own key" for the stored-audio paths below)
-  await page.evaluate(() => { journalDebug.settings.segMin = 0.05; journalDebug.settings.engine = 'key'; });
+  await page.evaluate(() => { journalDebug.settings.segMin = 0.05; journalDebug.settings.engine = 'key'; journalDebug.settings.transcribe = 'ask'; });
   await page.evaluate(() => journalDebug.startRecording());
-  await page.waitForSelector('#rec:not([hidden])');
+  await page.waitForSelector('#recBar:not([hidden])');
   await sleep(8000);
   const t = await page.textContent('#recTime');
   check(/0:0[5-9]/.test(t), 'timer runs: ' + t);
@@ -83,16 +83,23 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   if (await page.isVisible('#popup.open')) await page.click('#popupBox button');
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
 
-  // 2c2. a tap on the microphone records; Discard drops it
+  // 2c2. with the phone engine a tap on the microphone opens the text window for dictation; left empty, it is not kept
   const before = await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length);
-  await page.click('#recBtn'); await page.waitForSelector('#rec:not([hidden])'); await sleep(1500);
+  await page.evaluate(() => { journalDebug.settings.engine = 'phone'; });
+  await page.click('#recBtn'); await page.waitForSelector('#entry:not([hidden])'); await sleep(400);
+  check(await page.evaluate(() => document.getElementById('noteText').value === '' && document.getElementById('recBar').hidden && !journalDebug.recording), 'microphone tap opens the text window, no recording screen');
+  await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before, 'an entry left empty is dropped');
+  // with a key the tap records in the background of the text window
+  await page.evaluate(() => { journalDebug.settings.engine = 'key'; });
+  await page.click('#recBtn'); await page.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
+  check(await page.evaluate(() => journalDebug.recording && !document.getElementById('entry').hidden), 'with a key the tap records inside the entry');
   await page.click('#recDiscard'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await page.waitForSelector('#home:not([hidden])', { timeout: 15000 }); await sleep(500);
-  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before && !(await page.evaluate(() => journalDebug.recording)), 'microphone tap records; discard drops the entry');
-  check(await page.evaluate(() => { const e = journalDebug.entries[0]; return !!e.deleted && !e.segs.length; }), 'discarded recording kept no audio');
+  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before && !(await page.evaluate(() => journalDebug.recording)), 'discard drops the recording');
 
   // 2d. the phone engine: a memo recorded with it gets no "Transcribe?" question and says what it needs
   await page.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.segMin = 0.05; });
-  await page.evaluate(() => journalDebug.startRecording()); await page.waitForSelector('#rec:not([hidden])'); await sleep(4000);
+  await page.evaluate(() => journalDebug.startRecording()); await page.waitForSelector('#recBar:not([hidden])'); await sleep(4000);
   const liveShown = await page.evaluate(() => !!(self.SpeechRecognition || self.webkitSpeechRecognition) ? !document.getElementById('recLive').hidden : document.getElementById('recLive').hidden);
   check(liveShown, 'live line shown only when the browser has speech recognition');
   await page.click('#recStop'); await page.waitForSelector('#entry:not([hidden])', { timeout: 15000 }); await sleep(400);
@@ -159,7 +166,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
 
   // 7. crash recovery: reload mid-recording
   await page.evaluate(() => { journalDebug.settings.segMin = 5; });
-  await page.evaluate(() => journalDebug.startRecording()); await page.waitForSelector('#rec:not([hidden])'); await sleep(12500);
+  await page.evaluate(() => journalDebug.startRecording()); await page.waitForSelector('#recBar:not([hidden])'); await sleep(12500);
   const partsBefore = await page.evaluate(async () => (await journalDebug.idb.keys('parts')).length);
   check(partsBefore >= 1, 'parts stored while recording: ' + partsBefore);
   await page.goto(BASE); await page.waitForFunction(() => window.journalDebug && journalDebug.locked);

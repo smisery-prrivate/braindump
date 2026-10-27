@@ -32,7 +32,7 @@ async function startRecording() {
   if (!(await persist(e))) { for (const t of stream.getTracks()) t.stop(); entries.splice(entries.indexOf(e), 1); return; }      // the entry exists before the first byte
   recEntry = e; recStream = stream; recording = true; recPaused = false; recPausedMs = 0; recStartAt = Date.now(); recDiscarding = false;
   stream.getAudioTracks().forEach(t => { t.onended = () => { if (recording && recStream === stream) { toast('The microphone was taken away. The memo is kept.'); stopRecording(); } }; });
-  push('rec'); renderRec();
+  openEntry(e); renderRec();
   keepAwake(); startMeter(stream);
   recTick = setInterval(renderRecTime, 250);
   startSegment();
@@ -67,10 +67,10 @@ function takeLive() { if (!liveRec) return undefined; const t = joinOverlap(live
 function stopLive() { if (!liveRec) return; liveRec.on = false; pauseLive(); }
 function renderLive() {
   const el = $('recLive'); if (!el) return;
-  if (!liveRec) { el.hidden = false; el.className = 'reclive'; el.textContent = settings.engine === 'phone' ? (settings.transcribe === 'off' ? 'Audio only.' : 'Audio only (no live recognition here). Tap the microphone instead of holding it to dictate.') : 'Audio; the text follows through ' + txEngineLabel() + ' after the recording.'; return; }
+  if (!liveRec) { el.hidden = !(settings.engine === 'phone'); el.className = 'reclive err'; el.textContent = 'Audio only: this phone cannot recognise speech while it records.'; return; }
   el.hidden = false;
   if (liveRec.err && !liveRec.on) { el.textContent = 'No live text: ' + liveRec.err + '. The audio is kept. For text with the phone engine, stop and TAP the microphone to dictate instead; a key or the cloud can transcribe this audio later.'; el.className = 'reclive err'; return; }
-  const t = joinOverlap(liveRec.text, (liveRec.sess + ' ' + liveRec.interim).trim());
+  const t = joinOverlap(joinOverlap(liveRec.text, liveRec.sess), liveRec.interim);
   el.className = 'reclive'; el.textContent = t ? '…' + t.slice(-160) : (liveRec.err ? 'Listening… (' + liveRec.err + ')' : 'Listening…');
 }
 function startSegment() {
@@ -159,11 +159,9 @@ async function stopRecording() {
     else { e.state = 'done'; e.dur = entryDur(e); await persist(e); }
   }
   recDiscarding = false;
-  closeScreen('rec');
-  if (kept) afterPop(() => {
-    openEntry(e);
-    if (!e.tx && settings.transcribe === 'ask' && settings.engine !== 'phone' && e.segs.some(g => g.st === 'todo')) askTranscribe(e);
-  });
+  renderRecBar();
+  if (kept) { if (curEntry !== e && !locked) openEntry(e); else renderEntry(); if (!e.tx && settings.transcribe === 'ask' && settings.engine !== 'phone' && e.segs.some(g => g.st === 'todo')) askTranscribe(e); }
+  else if (curEntry === e) closeScreen('entry');
   renderHome();
 }
 function discardRecording() {
@@ -173,11 +171,12 @@ function discardRecording() {
     { label: 'Keep recording', cls: 'quiet' }]);
 }
 function recFailed(msg) { toast(msg); if (recording) stopRecording(); }
-function leaveRec() { if (recording) stopRecording(); }
+// the bar in the entry shows while this entry records; leaving the entry does not stop the recording
+function renderRecBar() { const bar = $('recBar'); if (!bar) return; bar.hidden = !(recording && curEntry && recEntry === curEntry); }
 
 // ---------- screen ----------
 function renderRec() {
-  renderLive();
+  renderRecBar(); renderLive();
   $('recState').textContent = recPaused ? 'Paused' : 'Recording';
   $('recDot').classList.toggle('paused', recPaused);
   $('recPause').textContent = recPaused ? 'Resume' : 'Pause';
@@ -187,7 +186,7 @@ function renderRecTime() {
   if (!recording) return;
   $('recTime').textContent = fmtDur(recElapsed());
   const n = recEntry ? recEntry.segs.length : 0;
-  $('recInfo').textContent = (n ? n + ' part' + (n > 1 ? 's' : '') + ' stored encrypted · ' : '') + 'a part is stored every ' + settings.segMin + ' min' + (wakeLock ? ' · screen stays on' : ' · keep the screen on');
+  $('recInfo').textContent = (n ? n + ' part' + (n > 1 ? 's' : '') + ' stored encrypted · ' : '') + 'a part is stored every ' + settings.segMin + ' min' + (settings.engine === 'key' || settings.engine === 'cloud' ? ' and its text follows below' : '') + (wakeLock ? ' · screen stays on' : ' · keep the screen on');
 }
 $('recPause').addEventListener('click', pauseRecording);
 $('recStop').addEventListener('click', () => stopRecording());
@@ -198,7 +197,7 @@ async function keepAwake() { try { if (navigator.wakeLock && !wakeLock) { wakeLo
 function releaseWake() { if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; } }
 function startMeter(stream) {
   const box = $('meter'); box.innerHTML = ''; const bars = [];
-  for (let i = 0; i < 28; i++) { const b = document.createElement('i'); box.appendChild(b); bars.push(b); }
+  for (let i = 0; i < 36; i++) { const b = document.createElement('i'); box.appendChild(b); bars.push(b); }
   try {
     audioCtx = new (self.AudioContext || self.webkitAudioContext)();
     const src = audioCtx.createMediaStreamSource(stream); analyser = audioCtx.createAnalyser(); analyser.fftSize = 256; src.connect(analyser);
@@ -208,7 +207,7 @@ function startMeter(stream) {
       analyser.getByteTimeDomainData(data);
       let sum = 0; for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
       const rms = Math.sqrt(sum / data.length), level = recPaused ? 0 : Math.min(1, rms * 4);
-      for (let i = 0; i < bars.length; i++) { const w = Math.sin((i + 1) / (bars.length + 1) * Math.PI); bars[i].style.height = Math.max(6, 6 + level * w * 44 * (0.7 + Math.random() * 0.3)) + 'px'; }
+      for (let i = 0; i < bars.length; i++) { const w = Math.sin((i + 1) / (bars.length + 1) * Math.PI); bars[i].style.height = Math.max(4, 4 + level * w * 18 * (0.7 + Math.random() * 0.3)) + 'px'; }
     }, 90);
   } catch (e) { analyser = null; }
 }
