@@ -146,8 +146,10 @@ function startDictation() {
     const r = new SR(); dictRec = r; dictSess = '';
     r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
     r.onresult = ev => {
+      // Android also lists the same utterance several times inside one event, each entry a little
+      // longer than the one before ("dies", "dies ist", "dies ist ein"): folded on their overlap
       let finals = '', interim = '';
-      for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals += t.trim() + ' '; else interim += t; }
+      for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals = joinOverlap(finals, t); else interim = joinOverlap(interim, t); }
       dictSess = finals; dictApply(interim);
     };
     r.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { stopDictation(); popup('Microphone', 'Journal has no permission to use the microphone for dictation. Allow it in the browser settings for this site.', [{ label: 'OK', cls: 'primary' }]); } };

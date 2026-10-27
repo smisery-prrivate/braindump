@@ -51,7 +51,7 @@ function startLive() {
     r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
     r.onresult = ev => {
       if (!liveRec) return; let finals = '', interim = '';
-      for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals += t.trim() + ' '; else interim += t; }
+      for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals = joinOverlap(finals, t); else interim = joinOverlap(interim, t); }
       liveRec.sess = finals; liveRec.interim = interim; renderLive();
     };
     r.onerror = ev => { if (!liveRec) return; const e = ev.error || ''; if (e === 'no-speech' || e === 'aborted') return; liveRec.err = e === 'not-allowed' || e === 'service-not-allowed' ? 'no permission for speech recognition' : e === 'audio-capture' ? 'the phone cannot listen while it records' : e === 'network' ? 'no connection to the speech service' : e; if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture') liveRec.on = false; renderLive(); };
