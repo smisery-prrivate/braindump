@@ -132,7 +132,7 @@ function startDictation() {
   const e = curEntry; if (!e || locked || passive || recording) return;
   if (settings.engine !== 'phone') { startClipDictation(e); return; }
   if (!SR) { popup('No dictation here', 'This browser has no built-in speech recognition. Use Chrome or Safari, the keyboard\'s microphone key, or choose a key or the cloud under Menu, Transcription.', [{ label: 'OK', cls: 'primary' }]); return; }
-  commitText();
+  commitText(); keepAwake();
   const cur = (e.text || '').replace(/\s+$/, '');
   dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictEntry = e; dictOn = true;
   const b = $('dictBtn'); if (b) b.textContent = '■ Stop';
@@ -183,6 +183,7 @@ function stopDictation() {
   if (!dictOn) return;
   if (clipRec) { dictOn = false; const c = clipRec; clipRec = null; clipStream = null; dictEntry = null; try { c.stop(); } catch (e) {} return; }
   dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
+  if (!recording) releaseWake();
   const e = dictEntry; dictEntry = null;
   if (e) { e.text = (dictBase + dictFinal).replace(/\s+$/, ''); if (curEntry === e) { dictApply(''); } persist(e); renderHome(); }
   const b = $('dictBtn'); if (b) b.textContent = '🎙 Dictate';
@@ -208,7 +209,7 @@ function renderTxState() {
   el.textContent = msg; el.className = 'st ' + cls;
   if (segs.length > 1) { const row = document.createElement('div'); row.className = 'segrow'; segs.forEach((g, i) => { const sp = document.createElement('span'); sp.className = g.st === 'done' ? 'done' : g.st === 'busy' ? 'busy' : g.st === 'fail' ? 'fail' : ''; sp.textContent = (i + 1) + ' · ' + fmtDur(g.dur); row.appendChild(sp); }); el.appendChild(row); }
   bt.innerHTML = '';
-  if (e.state !== 'rec' && segs.some(g => g.st !== 'done')) { const b = document.createElement('button'); b.textContent = s === 'busy' ? 'Transcribing…' : s === 'fail' ? 'Try again' : 'Transcribe'; b.disabled = s === 'busy'; b.addEventListener('click', () => wantTranscribe(e)); bt.appendChild(b); }
+  if (e.state !== 'rec' && segs.some(g => g.st !== 'done')) { const b = document.createElement('button'); b.textContent = s === 'busy' ? 'Transcribing…' : s === 'fail' ? 'Try again' : txAvailable() ? 'Transcribe' : 'How to get text'; b.disabled = s === 'busy'; b.addEventListener('click', () => wantTranscribe(e)); bt.appendChild(b); }
 }
 function commitTitle() { const e = curEntry; if (!e) return; const v = $('entryTitle').value.trim(); if (v !== (e.title || '')) { e.title = v; persist(e); renderHome(); } }
 function commitText() {

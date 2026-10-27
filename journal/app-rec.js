@@ -67,9 +67,9 @@ function takeLive() { if (!liveRec) return undefined; const t = liveRec.text.tri
 function stopLive() { if (!liveRec) return; liveRec.on = false; pauseLive(); }
 function renderLive() {
   const el = $('recLive'); if (!el) return;
-  if (!liveRec) { el.hidden = true; return; }
+  if (!liveRec) { el.hidden = false; el.className = 'reclive'; el.textContent = settings.engine === 'phone' ? (settings.transcribe === 'off' ? 'Audio only.' : 'Audio only (no live recognition here). Tap the microphone instead of holding it to dictate.') : 'Audio; the text follows through ' + txEngineLabel() + ' after the recording.'; return; }
   el.hidden = false;
-  if (liveRec.err && !liveRec.on) { el.textContent = 'Live transcription off: ' + liveRec.err + '. The audio is kept; transcribe it later with a key or the cloud.'; el.className = 'reclive err'; return; }
+  if (liveRec.err && !liveRec.on) { el.textContent = 'No live text: ' + liveRec.err + '. The audio is kept. For text with the phone engine, stop and TAP the microphone to dictate instead; a key or the cloud can transcribe this audio later.'; el.className = 'reclive err'; return; }
   const t = (liveRec.text + liveRec.interim).trim();
   el.className = 'reclive'; el.textContent = t ? '…' + t.slice(-160) : (liveRec.err ? 'Listening… (' + liveRec.err + ')' : 'Listening…');
 }

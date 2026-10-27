@@ -98,7 +98,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.click('#recStop'); await page.waitForSelector('#entry:not([hidden])', { timeout: 15000 }); await sleep(400);
   check(!(await page.isVisible('#popup.open')), 'no "Transcribe?" question with the phone engine');
   await page.click('#txBtns button'); await sleep(300);
-  check((await page.textContent('#popupBox')).includes('Stored audio needs a key'), 'stored audio explains it needs a key or the cloud');
+  check((await page.textContent('#popupBox')).includes('no text yet'), 'stored audio explains it needs a key or the cloud');
   await page.click('#popupBox button.quiet'); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
   await page.evaluate(async () => { const e = journalDebug.entries[0]; e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); journalDebug.settings.engine = 'cloud'; saveSettings(); }); await sleep(300);
 

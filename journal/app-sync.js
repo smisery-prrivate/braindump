@@ -146,7 +146,7 @@ function askTranscribe(e) {
 }
 function wantTranscribe(e) {
   if (!txAvailable()) {
-    if (settings.engine === 'phone') popup('Stored audio needs a key or the cloud', 'The phone\'s speech recognition only listens live while you record. To transcribe this recording afterwards, choose "Own key" or "Cloud function" under Menu, Transcription.', [{ label: 'Open the menu', cls: 'primary', fn: openSheet }, { label: 'Not now', cls: 'quiet' }]);
+    if (settings.engine === 'phone') popup('This recording has no text yet', 'The phone\'s speech recognition cannot read a stored recording; on most phones it cannot even listen while the phone records. For text with the phone engine, TAP the microphone and dictate (that runs as long as you like). To turn this recording into text, choose "Own key" or "Cloud function" under Menu, Transcription.', [{ label: 'Open the menu', cls: 'primary', fn: openSheet }, { label: 'OK', cls: 'quiet' }]);
     else { toast(settings.engine === 'key' ? 'Enter your key under Menu, Transcription.' : 'Sign in under Menu, Cloud.'); openSheet(); }
     return;
   }
