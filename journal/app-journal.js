@@ -131,7 +131,8 @@ const SR = self.SpeechRecognition || self.webkitSpeechRecognition;
 // resultIndex, so appending per event duplicates lines).
 let dictRec = null, dictOn = false, dictBase = '', dictFinal = '', dictSess = '', dictEntry = null;
 function dictLang() { const l = settings.lang; return l === 'de' ? 'de-DE' : l === 'en' ? 'en-US' : (navigator.language && /^(de|en)/.test(navigator.language) ? navigator.language : 'de-DE'); }
-function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictBase + dictFinal + dictSess + (interim || ''); nt.scrollTop = nt.scrollHeight; }
+const dictText = interim => { const t = joinOverlap(dictFinal, (dictSess + ' ' + (interim || '')).trim()); return dictBase + t + (interim ? ' ' : ''); };
+function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictText(interim); nt.scrollTop = nt.scrollHeight; }
 function startDictation() {
   const e = curEntry; if (!e || locked || passive || recording) return;
   if (settings.engine !== 'phone') { startClipDictation(e); return; }
@@ -150,7 +151,7 @@ function startDictation() {
       dictSess = finals; dictApply(interim);
     };
     r.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { stopDictation(); popup('Microphone', 'Journal has no permission to use the microphone for dictation. Allow it in the browser settings for this site.', [{ label: 'OK', cls: 'primary' }]); } };
-    r.onend = () => { if (dictRec !== r) return; dictRec = null; dictFinal += dictSess; dictSess = ''; if (dictOn) run(); };      // Android ends after every pause: on again at once
+    r.onend = () => { if (dictRec !== r) return; dictRec = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = ''; if (dictOn) run(); };      // Android ends after every pause: on again at once
     try { r.start(); } catch (err) { stopDictation(); }
   };
   run();
@@ -188,7 +189,7 @@ function stopDictation() {
   if (clipRec) { dictOn = false; const c = clipRec; clipRec = null; clipStream = null; dictEntry = null; try { c.stop(); } catch (e) {} return; }
   dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
   if (!recording) releaseWake();
-  const e = dictEntry; dictEntry = null; dictFinal += dictSess; dictSess = '';
+  const e = dictEntry; dictEntry = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
   if (e) { e.text = (dictBase + dictFinal).replace(/\s+$/, ''); if (curEntry === e) { dictApply(''); } persist(e); renderHome(); }
   const b = $('dictBtn'); if (b) b.textContent = '🎙 Dictate';
 }

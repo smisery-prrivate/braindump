@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v7';
+const VERSION = 'v8';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -156,6 +156,19 @@ function mergeText(e) {
   else for (const g of e.segs || []) if (g.text && !g.merged) { t = joinText(t, g.text); g.merged = true; }
   e.text = t; e.transcript = ''; e.tEdited = false; e.merged = true;
   return true;
+}
+// Speech recognition on Android ends a session after every phrase and often repeats, in the next
+// session, everything said so far plus the new words. Two pieces are joined on their overlap: the
+// longest run of words that ends the first and starts the second is kept once.
+function joinOverlap(prev, next) {
+  const A = (prev || '').trim().split(/\s+/).filter(Boolean), B = (next || '').trim().split(/\s+/).filter(Boolean);
+  if (!A.length) return B.join(' '); if (!B.length) return A.join(' ');
+  const norm = w => w.toLowerCase().replace(/[.,!?;:]+$/, '');
+  for (let k = Math.min(A.length, B.length); k > 0; k--) {
+    let ok = true; for (let i = 0; i < k; i++) if (norm(A[A.length - k + i]) !== norm(B[i])) { ok = false; break; }
+    if (ok) return A.concat(B.slice(k)).join(' ');
+  }
+  return A.concat(B).join(' ');
 }
 // a segment's transcript arrived: into the text, once
 function mergeSeg(e, g) { if (!g.merged && g.text) { e.text = joinText(e.text, g.text); g.merged = true; } }
