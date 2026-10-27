@@ -30,11 +30,15 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   "Transcribe again" starts over. A refused segment is retried after a growing pause (1, 4, 16 …
   minutes, an hour at most) and the entry says why meanwhile. Setting: ask after each memo (the
   default), always, or never (audio only).
-- **Dictate into a note.** The note field has a Dictate button that follows the engine: with
-  the phone engine the text appears live (Chrome stops after pauses; the app starts it again
-  while dictation is on); with a key or the cloud a short clip is recorded and sent, and the
-  text is appended. "Open in Claude" in the entry menu hands the entry's text to the Claude app
-  or claude.ai as the first message of a new chat.
+- **One text per entry.** An entry is one text, whatever its source: typed, dictated, or
+  transcribed from a long recording (each segment's transcript is appended to it once). Two
+  buttons on the home screen: the pen writes a new entry, the microphone dictates one (the text
+  appears live); holding the microphone starts a long audio recording instead. The entry view
+  has a Dictate button that follows the engine: with the phone engine the text appears live
+  (Chrome stops after pauses; the app starts it again while dictation is on); with a key or the
+  cloud a short clip is recorded and sent, and the text is appended. An entry left empty is not
+  kept. "Open in Claude" in the entry menu hands the entry's text to the Claude app or claude.ai
+  as the first message of a new chat.
 - **Long press** on an entry in the list: a menu with Open, Share as text, Open in Claude, Delete.
 - **Journal.** Entries by day, newest first, with time, title, the first lines, length and state.
   Search over titles, notes and transcripts. Each entry has a player over all its segments (seek,
@@ -137,8 +141,8 @@ The script files share one scope and load in the order above. There is no build 
 
 ## Data model
 
-An entry: `{ id, created, updated_at, title, text, transcript, tEdited, lang, mime, segs, state,
-dur, deleted, del_at, tx }` plus local marks (`cloud`, `srv`, `pushed_at`, `up`, `purged`). A
+An entry: `{ id, created, updated_at, title, text, lang, mime, segs, state, dur, deleted,
+del_at, tx, merged }` (`transcript` and `tEdited` are folded into `text` by `mergeText` since v5) plus local marks (`cloud`, `srv`, `pushed_at`, `up`, `purged`). A
 segment: `{ id, i, dur, mime, size, text, st, lang }` with `st` one of `todo`, `busy`, `done`,
 `fail`, `off`. The transcript shown is the edited text when `tEdited`, else the segment texts
 joined. Timestamps are milliseconds. Everything is stored in IndexedDB `journal`, stores
@@ -196,6 +200,7 @@ See `README.md`.
 
 ## History
 
+- v5 (2026-10-27): one text per entry; pen writes, microphone dictates, holding it records audio.
 - v4 (2026-10-27): one engine setting for memos and notes: phone (live while recording), own
   key, or cloud function.
 - v3 (2026-10-27): dictation into the note with the phone's own speech recognition, "Open in

@@ -142,7 +142,7 @@ function renderSheet() {
     '<div class="hint">Shorter parts mean less is lost if the phone dies, and the transcript arrives sooner; a change applies to the next recording.</div>' +
     '<h2>Backup</h2><div id="backupBox"></div>' +
     '<h2>App</h2><div id="installBox"></div>' +
-    '<div class="hint">Everything is encrypted on this device and encrypted again before it is uploaded. Audio leaves the device only for transcription, and only when you ask for it. No cookies, no trackers, no third-party scripts.</div>' +
+    '<div class="hint">Tap the microphone to dictate an entry, hold it for a long audio recording. Everything is encrypted on this device and encrypted again before it is uploaded. Audio leaves the device only for transcription, and only when you ask for it. No cookies, no trackers, no third-party scripts.</div>' +
     '<div class="version">Journal · ' + VERSION + '</div>';
   renderTxBox(); renderSyncBox(); renderLockBox(); renderBackupBox(); renderInstallBox();
   $('setSeg').value = String(settings.segMin); $('setSeg').addEventListener('change', e => { settings.segMin = +e.target.value; saveSettings(); });

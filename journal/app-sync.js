@@ -155,8 +155,7 @@ function wantTranscribe(e) {
   persist(e); renderAll(); scheduleTranscribe(0);
 }
 function retranscribe(e) {
-  for (const g of e.segs) { g.st = 'todo'; g.text = ''; txFail.delete(g.id); }
-  e.transcript = ''; e.tEdited = false;
+  for (const g of e.segs) { g.st = 'todo'; g.text = ''; g.merged = false; txFail.delete(g.id); }
   wantTranscribe(e);
 }
 function scheduleTranscribe(ms) { if (!txAvailable() || passive) return; clearTimeout(txTimer); txTimer = setTimeout(transcribeNow, ms == null ? 600 : ms); }
@@ -193,7 +192,7 @@ async function transcribeNow() {
         if (blob.size > MAX_SEG) throw new Error('this part is too large');
         const k = e.segs.indexOf(g), prev = k > 0 ? (e.segs[k - 1].text || '').trim().slice(-200) : '';
         const out = await transcribeRequest(blob, g, prev, e.lang || settings.lang);
-        if (!e.deleted && g.st === 'busy') { g.text = out.text; if (out.language) g.lang = out.language; g.st = 'done'; txFail.delete(g.id); }
+        if (!e.deleted && g.st === 'busy') { g.text = out.text; if (out.language) g.lang = out.language; g.st = 'done'; g.merged = false; mergeSeg(e, g); txFail.delete(g.id); }
       } catch (err) {
         if (g.st === 'busy') {
           if (txCtl.signal.aborted) g.st = 'todo';
@@ -312,7 +311,7 @@ function abortSync() { if (syncCtl) syncCtl.abort(); }
 function syncRetry() { upFail.clear(); if (syncState === 'error') setSyncState(''); syncNow(); }
 const objName = (u, segId) => u + '/' + segId;
 const cloudFields = e => ({ id: e.id, created: e.created, updated_at: e.updated_at, title: e.title || '', text: e.text || '', transcript: e.transcript || '', tEdited: !!e.tEdited, lang: e.lang || 'auto', mime: e.mime || '',
-  segs: (e.segs || []).map(g => ({ id: g.id, i: g.i, dur: g.dur, mime: g.mime, size: g.size, text: g.text || '', st: g.st === 'done' ? 'done' : 'todo', lang: g.lang || '' })), state: 'done', dur: e.dur || 0, deleted: !!e.deleted, del_at: e.del_at || 0, tx: !!e.tx });
+  segs: (e.segs || []).map(g => ({ id: g.id, i: g.i, dur: g.dur, mime: g.mime, size: g.size, text: g.text || '', st: g.st === 'done' ? 'done' : 'todo', lang: g.lang || '', merged: !!g.merged, live: !!g.live })), state: 'done', dur: e.dur || 0, deleted: !!e.deleted, del_at: e.del_at || 0, tx: !!e.tx, merged: !!e.merged });
 const sealedMeta = e => Vault.csealJson(e.deleted ? { id: e.id, deleted: true, updated_at: e.updated_at, del_at: e.del_at || 0 } : cloudFields(e), 'jn|entry|' + e.id);
 async function applyRow(row) {
   let m; try { m = await Vault.copenJson(row.meta, 'jn|entry|' + row.id); } catch (e) { return 'unreadable'; }
@@ -322,6 +321,7 @@ async function applyRow(row) {
     if (m.deleted) return 'ok';
     const e = Object.assign({ segs: [] }, m, { cloud: true, srv: row.synced_at, pushed_at: m.updated_at, up: {}, broken: false });
     for (const g of e.segs) e.up[g.id] = true;
+    mergeText(e);
     entries.push(e); entries.sort((a, b) => (b.created || 0) - (a.created || 0));
     await persist(e, { quiet: true }); return 'ok';
   }
@@ -332,6 +332,7 @@ async function applyRow(row) {
       const up = local.up || {}; for (const g of m.segs || []) up[g.id] = true;
       for (const g of local.segs || []) if (!(m.segs || []).some(x => x.id === g.id)) { idb.del('segs', g.id).catch(() => {}); }
       Object.assign(local, m, { cloud: true, srv: row.synced_at, pushed_at: m.updated_at, up, broken: false });
+      mergeText(local);
       if (curEntry === local) { stopPlayer(); renderEntry(); }
     }
     await persist(local, { quiet: true }); return 'ok';

@@ -7,11 +7,11 @@ const player = { e: null, i: -1, urls: new Map(), audio: null, rate: 1, seeking:
 // ---------- home ----------
 function matches(e, q) {
   if (!q) return true;
-  const hay = ((e.title || '') + '\n' + (e.text || '') + '\n' + entryText(e)).toLowerCase();
+  const hay = ((e.title || '') + '\n' + entryText(e)).toLowerCase();
   return q.split(/\s+/).filter(Boolean).every(w => hay.includes(w));
 }
 function snippet(e) {
-  const t = (e.text || '').trim() || entryText(e).trim();
+  const t = entryText(e).trim();
   if (t) return t.replace(/\s+/g, ' ').slice(0, 160);
   const s = txState(e);
   return s === 'busy' ? 'Transcribing…' : s === 'todo' ? 'Not transcribed yet' : s === 'fail' ? 'Transcription failed' : s === 'off' ? 'Audio only' : '';
@@ -22,7 +22,7 @@ function renderHome() {
   $('searchRow').hidden = all.length < 4 && !q;
   const shown = all.filter(e => matches(e, q));
   if (!shown.length) {
-    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>Tap the microphone and talk, for as long as you like. Everything is stored encrypted on this phone.') + '</div>';
+    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>Tap the microphone and talk, or the pen and write. Hold the microphone for a long audio recording. Everything is stored encrypted on this phone.') + '</div>';
     return;
   }
   let html = '', day = '';
@@ -59,23 +59,31 @@ $('list').addEventListener('contextmenu', ev => { if (ev.target.closest('.card')
 function entryMenu(e) {
   if (e.state === 'rec' && recording) return;
   const btns = [{ label: 'Open', fn: () => openEntry(e) }];
-  if (entryText(e) || e.text) btns.push({ label: 'Share as text', fn: () => shareText(e) }, { label: 'Open in Claude', fn: () => openInClaude(e) });
+  if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) }, { label: 'Open in Claude', fn: () => openInClaude(e) });
   btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) }, { label: 'Cancel', cls: 'quiet' });
   popup(entryLabel(e), fmtDay(e.created) + ' · ' + fmtTime(e.created) + (e.segs && e.segs.length ? ' · ' + fmtDur(entryDur(e)) : ''), btns);
 }
 $('searchBox').addEventListener('input', ev => { searchQ = ev.target.value; renderHome(); });
 $('menuBtn').addEventListener('click', () => openSheet());
 
-// ---------- a typed note ----------
-async function newNote() {
-  if (locked || passive || !Vault.isOpen()) return;
-  const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], state: 'done', dur: 0, deleted: false, tx: false, mime: '' };
+// ---------- a new entry: write (pen) or dictate (microphone) ----------
+async function newEntry(opts) {
+  if (locked || passive || !Vault.isOpen() || recording) return;
+  if (dictOn) stopDictation();
+  const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], state: 'done', dur: 0, deleted: false, tx: false, mime: '', merged: true };
   entries.unshift(e);
   if (!(await persist(e))) { entries.splice(entries.indexOf(e), 1); return; }
-  openEntry(e, { focusText: true });
+  openEntry(e, { focusText: !(opts && opts.dictate) });
   renderHome();
+  if (opts && opts.dictate) setTimeout(() => { if (curEntry === e) startDictation(); }, 80);
 }
-$('noteBtn').addEventListener('click', newNote);
+$('noteBtn').addEventListener('click', () => newEntry());
+// the microphone: a tap dictates into a new entry; holding it (600 ms) starts a long audio recording
+let micHold = null, micHeld = false;
+$('recBtn').addEventListener('pointerdown', ev => { if (ev.button > 0) return; micHeld = false; clearTimeout(micHold); micHold = setTimeout(() => { micHold = null; micHeld = true; if (navigator.vibrate) { try { navigator.vibrate(20); } catch (e) {} } startRecording(); }, 600); });
+for (const t of ['pointerup', 'pointercancel', 'pointerleave']) $('recBtn').addEventListener(t, () => { clearTimeout(micHold); micHold = null; });
+$('recBtn').addEventListener('click', () => { if (micHeld) { micHeld = false; return; } newEntry({ dictate: true }); });
+$('recBtn').addEventListener('contextmenu', ev => ev.preventDefault());
 
 // ---------- entry view ----------
 let titleTimer = null, textTimer = null, focusTextNext = false;
@@ -86,28 +94,28 @@ function openEntry(e, opts) {
   renderEntry();
   if (focusTextNext) setTimeout(() => { const t = $('noteText'); if (t) t.focus(); }, 60);
 }
-function leaveEntry() { if (dictOn) stopDictation(); commitTitle(); commitText(); stopPlayer(); curEntry = null; }
+function leaveEntry() {
+  if (dictOn) stopDictation(); commitTitle(); commitText(); stopPlayer();
+  const e = curEntry; curEntry = null;
+  if (e && !e.deleted && !(e.text || '').trim() && !(e.title || '').trim() && !(e.segs && e.segs.length) && e.state !== 'rec') { e.deleted = true; e.del_at = Date.now(); persist(e); renderHome(); }      // an entry left empty is not kept
+}
 function renderEntry() {
   const e = curEntry; if (!e || current() !== 'entry') return;
   const ti = $('entryTitle'); if (document.activeElement !== ti) ti.value = e.title || '';
-  const segs = e.segs || [], s = txState(e);
+  const segs = e.segs || [];
   $('entryMeta').textContent = fmtDay(e.created) + ' · ' + fmtTime(e.created) + (segs.length ? ' · ' + fmtDur(entryDur(e)) + ' · ' + fmtSize(segs.reduce((a, g) => a + (g.size || 0), 0)) : '') + (e.cloud ? ' · in the cloud' : '');
-  const body = $('entryBody');
-  const txt = $('txText'), nt = $('noteText');
-  const typingTx = txt && document.activeElement === txt, typingNote = nt && document.activeElement === nt;
-  if (typingTx || typingNote) { renderTxState(); return; }                               // never redraw under a moving cursor
+  const body = $('entryBody'), nt = $('noteText');
+  if (nt && document.activeElement === nt) { renderTxState(); return; }                               // never redraw under a moving cursor
   let html = '';
   if (segs.length) {
     html += '<div class="player"><div class="row"><button class="play" id="playBtn" aria-label="Play">▶</button><input type="range" id="seek" min="0" max="' + Math.max(1, Math.round(entryDur(e))) + '" value="0" step="250"></div>' +
       '<div class="times"><span id="tCur">0:00</span><span id="tTot">' + esc(fmtDur(entryDur(e))) + '</span></div>' +
-      '<div class="speed">' + [1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div></div>';
-    html += '<div class="txcard"><div class="t"><span>Transcript</span><span id="txBtns"></span></div><div class="st" id="txState"></div>' +
-      '<textarea id="txText" placeholder="' + (s === 'done' ? '' : 'The transcript appears here.') + '" spellcheck="false">' + esc(entryText(e)) + '</textarea></div>';
+      '<div class="speed">' + [1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
+      '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
   }
-  html += '<div class="txcard"><div class="t"><span>' + (segs.length ? 'Notes' : 'Note') + '</span><button id="dictBtn" title="Dictate with the phone\'s speech recognition">' + (dictOn ? '■ Stop' : '🎙 Dictate') + '</button></div><textarea id="noteText" placeholder="' + (segs.length ? 'Anything to add in writing…' : 'Write, or tap Dictate…') + '">' + esc(e.text || '') + '</textarea></div>';
+  html += '<div class="txcard"><div class="t"><span>Text</span><button id="dictBtn" title="Dictate with the phone\'s speech recognition">' + (dictOn ? '■ Stop' : '🎙 Dictate') + '</button></div><textarea id="noteText" placeholder="Write, or tap Dictate…">' + esc(e.text || '') + '</textarea></div>';
   body.innerHTML = html;
   renderTxState(); wirePlayer();
-  const txEl = $('txText'); if (txEl) txEl.addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
   $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
   $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : startDictation());
 }
@@ -191,25 +199,21 @@ function renderTxState() {
   const e = curEntry, el = $('txState'), bt = $('txBtns'); if (!e || !el) return;
   const segs = e.segs || [], s = txState(e), done = segs.filter(g => g.st === 'done').length;
   let msg = '', cls = '';
-  if (s === 'busy') { msg = 'Transcribing… ' + done + ' of ' + segs.length + ' parts done.'; cls = 'busy'; }
+  if (s === 'busy') { msg = 'Transcribing… ' + done + ' of ' + segs.length + ' parts done; the text is added below.'; cls = 'busy'; }
   else if (s === 'fail') { const f = segs.find(g => g.st === 'fail'); msg = 'Transcription failed: ' + (f && f.err || 'unknown error') + (txFailUntil(e) ? ' · trying again ' + txFailUntil(e) : ''); cls = 'fail'; }
-  else if (s === 'todo') msg = e.tx ? (txAvailable() ? 'Waiting to transcribe…' : settings.engine === 'phone' ? 'Stored audio needs a key or the cloud (Menu, Transcription).' : 'Set up transcription in the menu.') : 'Not transcribed. The audio is stored encrypted here.' + (settings.engine === 'phone' ? ' The phone only transcribes live while recording; use a key or the cloud for this one.' : '');
-  else if (s === 'done' && e.segs.every(g => g.live)) { msg = (e.tEdited ? 'Edited by you.' : 'Transcribed live by the phone while recording.'); }
+  else if (s === 'todo') msg = e.tx ? (txAvailable() ? 'Waiting to transcribe…' : settings.engine === 'phone' ? 'Stored audio needs a key or the cloud (Menu, Transcription).' : 'Set up transcription in the menu.') : 'Not transcribed; the recording is stored encrypted here.' + (settings.engine === 'phone' ? ' The phone only transcribes live while recording; a key or the cloud can do it afterwards.' : '');
+  else if (s === 'done') msg = segs.every(g => g.live) ? 'Transcribed live while recording; the text is below.' : 'Transcribed; the text is below.';
   else if (s === 'off') msg = 'Audio only.';
-  else if (s === 'done') msg = (e.tEdited ? 'Edited by you.' : 'Transcribed.') + (e.lang && e.lang !== 'auto' ? '' : '');
   if (e.state === 'rec') { msg = 'Still recording.'; cls = ''; }
   el.textContent = msg; el.className = 'st ' + cls;
   if (segs.length > 1) { const row = document.createElement('div'); row.className = 'segrow'; segs.forEach((g, i) => { const sp = document.createElement('span'); sp.className = g.st === 'done' ? 'done' : g.st === 'busy' ? 'busy' : g.st === 'fail' ? 'fail' : ''; sp.textContent = (i + 1) + ' · ' + fmtDur(g.dur); row.appendChild(sp); }); el.appendChild(row); }
   bt.innerHTML = '';
   if (e.state !== 'rec' && segs.some(g => g.st !== 'done')) { const b = document.createElement('button'); b.textContent = s === 'busy' ? 'Transcribing…' : s === 'fail' ? 'Try again' : 'Transcribe'; b.disabled = s === 'busy'; b.addEventListener('click', () => wantTranscribe(e)); bt.appendChild(b); }
-  else if (segs.length && s === 'done') { const b = document.createElement('button'); b.textContent = 'Copy'; b.addEventListener('click', () => copyText(entryText(e))); bt.appendChild(b); }
 }
 function commitTitle() { const e = curEntry; if (!e) return; const v = $('entryTitle').value.trim(); if (v !== (e.title || '')) { e.title = v; persist(e); renderHome(); } }
 function commitText() {
-  clearTimeout(textTimer); const e = curEntry; if (!e) return; let changed = false;
-  const nt = $('noteText'); if (nt && nt.value !== (e.text || '')) { e.text = nt.value; changed = true; }
-  const tx = $('txText'); if (tx && tx.value !== entryText(e)) { e.transcript = tx.value; e.tEdited = true; changed = true; }
-  if (changed) { persist(e); renderHome(); }
+  clearTimeout(textTimer); const e = curEntry; if (!e) return;
+  const nt = $('noteText'); if (nt && nt.value !== (e.text || '')) { e.text = nt.value; persist(e); renderHome(); }
 }
 $('entryTitle').addEventListener('input', () => { clearTimeout(titleTimer); titleTimer = setTimeout(commitTitle, 600); });
 $('entryTitle').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); commitTitle(); } });
@@ -219,10 +223,10 @@ $('entryMore').addEventListener('click', () => {
   const e = curEntry; if (!e) return;
   commitTitle(); commitText();
   const btns = [];
-  if (entryText(e) || e.text) btns.push({ label: 'Share as text', fn: () => shareText(e) });
-  if (entryText(e) || e.text) btns.push({ label: 'Open in Claude', fn: () => openInClaude(e) });
+  if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) });
+  if (entryText(e)) btns.push({ label: 'Open in Claude', fn: () => openInClaude(e) });
   if (e.segs && e.segs.length) btns.push({ label: 'Share the audio', fn: () => shareAudio(e) });
-  if (e.segs && e.segs.some(g => g.st === 'done')) btns.push({ label: 'Transcribe again', fn: () => popup('Transcribe again?', e.tEdited ? 'Your edits to the transcript are replaced by a fresh transcription.' : 'The transcript is made anew.', [{ label: 'Transcribe again', cls: 'primary', fn: () => retranscribe(e) }, { label: 'Cancel', cls: 'quiet' }]) });
+  if (e.segs && e.segs.some(g => g.st === 'done')) btns.push({ label: 'Transcribe again', fn: () => popup('Transcribe again?', 'The recording is transcribed anew and the new text is added below what is there.', [{ label: 'Transcribe again', cls: 'primary', fn: () => retranscribe(e) }, { label: 'Cancel', cls: 'quiet' }]) });
   btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) });
   btns.push({ label: 'Cancel', cls: 'quiet' });
   popup(entryLabel(e), '', btns);
@@ -314,8 +318,7 @@ function stopPlayer() {
 function entryAsText(e) {
   const parts = ['# ' + entryLabel(e), fmtDay(e.created) + ' ' + fmtTime(e.created) + (e.segs && e.segs.length ? ' · ' + fmtDur(entryDur(e)) : '')];
   if (entryText(e)) parts.push('', entryText(e));
-  if (e.text) parts.push('', e.segs && e.segs.length ? '## Notes' : '', e.text);
-  return parts.filter((p, i) => p !== '' || i > 1).join('\n');
+  return parts.join('\n');
 }
 async function copyText(t) { try { await navigator.clipboard.writeText(t); toast('Copied'); } catch (e) { toast('Could not copy.'); } }
 async function shareText(e) {

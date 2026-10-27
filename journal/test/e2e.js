@@ -23,7 +23,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
 
   // 2. record a short memo with segments every ~3 s (engine "own key" for the stored-audio paths below)
   await page.evaluate(() => { journalDebug.settings.segMin = 0.05; journalDebug.settings.engine = 'key'; });
-  await page.click('#recBtn');
+  await page.evaluate(() => journalDebug.startRecording());
   await page.waitForSelector('#rec:not([hidden])');
   await sleep(8000);
   const t = await page.textContent('#recTime');
@@ -68,7 +68,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   console.log('direct', JSON.stringify(direct));
   check(direct.every(t => /Mistral transcript .*voxtral-mini-transcribe-3/.test(t)), 'transcribed straight from the phone with the own key');
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
-  await page.evaluate(async () => { for (const g of journalDebug.entries[0].segs) { g.st = 'todo'; g.text = ''; } await journalDebug.persist(journalDebug.entries[0]); await journalDebug.saveStt(null); journalDebug.settings.engine = 'cloud'; saveSettings(); });
+  await page.evaluate(async () => { const e = journalDebug.entries[0]; for (const g of e.segs) { g.st = 'todo'; g.text = ''; g.merged = false; } e.text = ''; await journalDebug.persist(e); await journalDebug.saveStt(null); journalDebug.settings.engine = 'cloud'; saveSettings(); });
 
   // 2c. long press on a card opens the options menu; a plain tap still opens the entry
   const box = await (await page.$('.card')).boundingBox();
@@ -83,9 +83,16 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   if (await page.isVisible('#popup.open')) await page.click('#popupBox button');
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
 
+  // 2c2. a tap on the microphone opens a new entry and starts dictation; left empty, it is not kept
+  const before = await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length);
+  await page.click('#recBtn'); await page.waitForSelector('#entry:not([hidden])'); await sleep(400);
+  check(await page.evaluate(() => document.getElementById('noteText').value === '' && !document.getElementById('popup').classList.contains('open')), 'microphone tap opens a fresh entry for dictation');
+  await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before, 'an entry left empty is dropped');
+
   // 2d. the phone engine: a memo recorded with it gets no "Transcribe?" question and says what it needs
   await page.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.segMin = 0.05; });
-  await page.click('#recBtn'); await page.waitForSelector('#rec:not([hidden])'); await sleep(4000);
+  await page.evaluate(() => journalDebug.startRecording()); await page.waitForSelector('#rec:not([hidden])'); await sleep(4000);
   const liveShown = await page.evaluate(() => !!(self.SpeechRecognition || self.webkitSpeechRecognition) ? !document.getElementById('recLive').hidden : document.getElementById('recLive').hidden);
   check(liveShown, 'live line shown only when the browser has speech recognition');
   await page.click('#recStop'); await page.waitForSelector('#entry:not([hidden])', { timeout: 15000 }); await sleep(400);
@@ -106,15 +113,15 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   // transcribe the memo (segments transcribed one after the other, with the previous tail as prompt)
   await page.evaluate(() => back()); await sleep(500);
   await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
-  await page.click('#txBtns button');
-  await page.waitForFunction(() => journalDebug.entries.find(x => !x.deleted).segs.every(g => g.st === 'done'), null, { timeout: 20000 });
-  const tx = await page.evaluate(() => ({ text: document.getElementById('txText').value, segs: journalDebug.entries.find(x => !x.deleted).segs.map(g => g.text) }));
+  if (await page.$('#txBtns button')) await page.click('#txBtns button');      // the queue may have started by itself right after the sign-in
+  await page.waitForFunction(() => journalDebug.entries.find(x => !x.deleted).segs.every(g => g.st === 'done'), null, { timeout: 20000 }); await sleep(500);
+  const tx = await page.evaluate(() => ({ text: document.getElementById('noteText').value, segs: journalDebug.entries.find(x => !x.deleted).segs.map(g => g.text) }));
   console.log('transcript', JSON.stringify(tx));
   check(tx.segs.length >= 2 && /prompt: Mock transcript \d+/.test(tx.segs[1]), 'second segment got the first one\'s tail as prompt');
   check(/Mock transcript \d+ \(.*\n\nMock transcript \d+/.test(tx.text), 'transcript stitched in the entry view');
   // edit the transcript
-  await page.fill('#txText', 'Edited by hand.'); await sleep(1200);
-  check(await page.evaluate(() => journalDebug.entries.find(x => !x.deleted).tEdited && journalDebug.entries.find(x => !x.deleted).transcript === 'Edited by hand.'), 'transcript edit stored');
+  await page.fill('#noteText', 'Edited by hand.'); await sleep(1200);
+  check(await page.evaluate(() => journalDebug.entries.find(x => !x.deleted).text === 'Edited by hand.'), 'text edit stored');
   await page.click('#entryBack');
 
   // 4. set the encryption password, sync, then verify the cloud holds only ciphertext
@@ -128,7 +135,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   // 5. a transcription failure backs off and is shown, then recovers
   await fetchJson('http://localhost:' + PORT + '/__fail?n=1');
   await page.evaluate(() => { journalDebug.settings.transcribe = 'auto'; });
-  await page.click('#recBtn'); await sleep(4000); await page.click('#recStop'); await page.waitForSelector('#entry:not([hidden])', { timeout: 15000 });
+  await page.evaluate(() => journalDebug.startRecording()); await sleep(4000); await page.click('#recStop'); await page.waitForSelector('#entry:not([hidden])', { timeout: 15000 });
   await page.waitForFunction(() => journalDebug.entries[0].segs.some(g => g.st === 'fail' || g.st === 'done'), null, { timeout: 15000 });
   const st1 = await page.evaluate(() => ({ st: journalDebug.entries[0].segs.map(g => g.st), msg: document.getElementById('txState').textContent }));
   console.log('fail state', JSON.stringify(st1));
@@ -152,7 +159,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
 
   // 7. crash recovery: reload mid-recording
   await page.evaluate(() => { journalDebug.settings.segMin = 5; });
-  await page.click('#recBtn'); await page.waitForSelector('#rec:not([hidden])'); await sleep(12500);
+  await page.evaluate(() => journalDebug.startRecording()); await page.waitForSelector('#rec:not([hidden])'); await sleep(12500);
   const partsBefore = await page.evaluate(async () => (await journalDebug.idb.keys('parts')).length);
   check(partsBefore >= 1, 'parts stored while recording: ' + partsBefore);
   await page.goto(BASE); await page.waitForFunction(() => window.journalDebug && journalDebug.locked);
@@ -168,7 +175,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   const ctx2 = await browser.newContext({ viewport: { width: 400, height: 800 } }); await ctx2.grantPermissions(['microphone']);
   const p2 = await ctx2.newPage(); p2.on('pageerror', e => errors.push('p2 pageerror: ' + e.message));
   await p2.goto(BASE); await p2.waitForFunction(() => window.journalDebug && document.getElementById('list').textContent.includes('empty'));
-  const r2 = await p2.evaluate(async bytes => { const f = new File([new Uint8Array(bytes)], 'x.journal'); let wrong = ''; try { await journalDebug.readBackup(f, 'nope'); } catch (e) { wrong = e.message; } const r = await journalDebug.readBackup(f, 'backup pass 1234'); return { wrong, r, n: journalDebug.entries.filter(e => !e.deleted).length, title: journalDebug.entries.find(e => e.title === 'Erster Test') && journalDebug.entries.find(e => e.title === 'Erster Test').transcript }; }, bk.bytes);
+  const r2 = await p2.evaluate(async bytes => { const f = new File([new Uint8Array(bytes)], 'x.journal'); let wrong = ''; try { await journalDebug.readBackup(f, 'nope'); } catch (e) { wrong = e.message; } const r = await journalDebug.readBackup(f, 'backup pass 1234'); return { wrong, r, n: journalDebug.entries.filter(e => !e.deleted).length, title: journalDebug.entries.find(e => e.title === 'Erster Test') && journalDebug.entries.find(e => e.title === 'Erster Test').text }; }, bk.bytes);
   console.log('restore', JSON.stringify(r2));
   check(/Wrong backup password/.test(r2.wrong) && r2.n === 3 && r2.r.audio >= 3 && r2.title === 'Edited by hand.', 'backup restored into a fresh browser');
 
@@ -180,7 +187,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p3.goto(BASE + '?code=goodcode'); await p3.waitForFunction(() => window.journalDebug && journalDebug.keyNeed === 'enter', null, { timeout: 15000 });
   await p3.waitForSelector('#pw1'); await p3.fill('#pw1', 'correct horse battery'); await p3.click('#pwGo');
   await p3.waitForFunction(() => journalDebug.entries.filter(e => !e.deleted && e.cloud).length >= 2, null, { timeout: 20000 });
-  const pulled = await p3.evaluate(async () => { const e = journalDebug.entries.find(x => x.title === 'Erster Test'); return { title: e && e.title, transcript: e && e.transcript, local: e ? !!(await journalDebug.segGet(e.segs[0].id)) : null, up: e && Object.keys(e.up).length }; });
+  const pulled = await p3.evaluate(async () => { const e = journalDebug.entries.find(x => x.title === 'Erster Test'); return { title: e && e.title, transcript: e && e.text, local: e ? !!(await journalDebug.segGet(e.segs[0].id)) : null, up: e && Object.keys(e.up).length }; });
   console.log('pulled', JSON.stringify(pulled));
   check(pulled.title === 'Erster Test' && pulled.transcript === 'Edited by hand.' && pulled.local === false, 'second device pulled the sealed entry; audio not yet local');
   await p3.evaluate(() => back()); await sleep(500);

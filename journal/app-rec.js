@@ -115,7 +115,8 @@ async function finishSegment(seg) {
   try {
     await segPut(seg.id, blob, { entry: e.id, mime: seg.mime, size: blob.size, dur, i: seg.i });
     const liveText = typeof seg.liveRec === 'string' ? seg.liveRec : '';
-    e.segs.push({ id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: liveText, st: liveText ? 'done' : (settings.transcribe === 'off' && !e.tx ? 'off' : 'todo'), live: !!liveText });
+    const g = { id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: liveText, st: liveText ? 'done' : (settings.transcribe === 'off' && !e.tx ? 'off' : 'todo'), live: !!liveText, merged: false };
+    e.segs.push(g); mergeSeg(e, g);
     e.segs.sort((a, b) => a.i - b.i); e.dur = entryDur(e);
     if (await persist(e)) await partsDel(seg.id); else throw new Error('the entry could not be saved');      // the parts stay until the entry names the segment
     if (e.tx) scheduleTranscribe();
@@ -191,7 +192,6 @@ function renderRecTime() {
 $('recPause').addEventListener('click', pauseRecording);
 $('recStop').addEventListener('click', () => stopRecording());
 $('recDiscard').addEventListener('click', discardRecording);
-$('recBtn').addEventListener('click', () => startRecording());
 
 // ---------- screen wake lock and level meter ----------
 async function keepAwake() { try { if (navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) { wakeLock = null; } }

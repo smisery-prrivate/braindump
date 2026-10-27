@@ -54,6 +54,17 @@
   .dock { position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; width: 100%; max-width: 520px; padding: 14px 16px calc(env(safe-area-inset-bottom) + 18px); z-index: 4; display: flex; align-items: center; justify-content: center; gap: 12px; background: linear-gradient(to top, var(--bg) 70%, rgba(246,244,240,0)); }
   .fab { width: 84px; height: 84px; border-radius: 50%; border: none; background: var(--accent); color: #fff; box-shadow: 0 10px 28px rgba(91,75,138,.4); display: flex; align-items: center; justify-content: center; }
   .fab:active { transform: scale(.96); }
+  .fab { touch-action: none; -webkit-touch-callout: none; user-select: none; }
+  .player .t { font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .player .t button { height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font-size: 13px; font-weight: 600; color: var(--accent); text-transform: none; letter-spacing: 0; }
+  .player .st { font-size: 13px; color: var(--muted); line-height: 1.45; }
+  .player .st.fail { color: var(--danger); }
+  .player .st.busy { color: var(--accent); }
+  .player .segrow { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .player .segrow span { font-size: 11px; padding: 2px 7px; border-radius: 9px; background: var(--line); color: var(--muted); }
+  .player .segrow span.done { background: #dff1e9; color: var(--ok); }
+  .player .segrow span.busy { background: var(--accent-bg); color: var(--accent); }
+  .player .segrow span.fail { background: var(--danger-bg); color: var(--danger); }
   .fab svg { width: 38px; height: 38px; }
   .fab.small { width: 56px; height: 56px; box-shadow: none; background: var(--card); color: var(--accent); border: 1px solid var(--line); }
   .fab.small svg { width: 26px; height: 26px; }
@@ -185,10 +196,10 @@
     <div id="list" class="scroll"></div>
   </div>
   <div class="dock" id="homeDock">
-    <button id="noteBtn" class="fab small" aria-label="Write a note" title="Write a note">
+    <button id="noteBtn" class="fab small" aria-label="Write an entry" title="Write">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>
     </button>
-    <button id="recBtn" class="fab" aria-label="Record a voice memo">
+    <button id="recBtn" class="fab" aria-label="Dictate an entry; hold for a long audio recording" title="Tap: dictate. Hold: record audio">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg>
     </button>
     <div style="width:56px"></div>

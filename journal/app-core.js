@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -140,14 +140,25 @@ async function loadEntries() {
   entries = await entryLoadAll();
   entries.sort((a, b) => (b.created || 0) - (a.created || 0));
   entriesLoaded = true;
+  for (const e of entries) if (!e.broken && mergeText(e)) await persist(e, { quiet: true });
 }
 const entryDur = e => (e.segs || []).reduce((s, g) => s + (g.dur || 0), 0);
-const entryLabel = e => (e.title || '').trim() || (e.segs && e.segs.length ? 'Voice memo' : 'Note');
-// the transcript as it stands: the edited text if the user touched it, otherwise the segments joined
-function entryText(e) {
-  if (e.tEdited || !e.segs || !e.segs.length) return e.transcript || '';
-  return e.segs.map(g => (g.text || '').trim()).filter(Boolean).join('\n\n');
+const entryLabel = e => (e.title || '').trim() || (e.segs && e.segs.length ? 'Voice memo' : 'Entry');
+// One text per entry (e.text): typed, dictated, or transcribed from audio; the transcript of each
+// audio segment is appended to it once (g.merged). Entries from before v5 carried a separate
+// transcript: mergeText folds it in, once.
+const entryText = e => e.text || '';
+const joinText = (a, b) => { a = (a || '').replace(/\s+$/, ''); b = (b || '').trim(); return a && b ? a + '\n\n' + b : a || b; };
+function mergeText(e) {
+  if (e.merged) return false;
+  let t = e.text || '';
+  if (e.tEdited && e.transcript) { t = joinText(t, e.transcript); for (const g of e.segs || []) g.merged = true; }
+  else for (const g of e.segs || []) if (g.text && !g.merged) { t = joinText(t, g.text); g.merged = true; }
+  e.text = t; e.transcript = ''; e.tEdited = false; e.merged = true;
+  return true;
 }
+// a segment's transcript arrived: into the text, once
+function mergeSeg(e, g) { if (!g.merged && g.text) { e.text = joinText(e.text, g.text); g.merged = true; } }
 const txState = e => {
   const segs = (e.segs || []); if (!segs.length) return '';
   if (segs.every(g => g.st === 'done')) return 'done';

@@ -41,10 +41,10 @@ async function readBackup(file, password, progress) {
   for (const m of manifest.entries || []) {
     if (!m || typeof m.id !== 'string') continue;
     const local = byId(m.id);
-    if (!local) { if (m.deleted) continue; const e = Object.assign({ segs: [] }, m, { cloud: false, srv: 0, pushed_at: 0, up: {}, broken: false }); entries.push(e); for (const g of e.segs) wanted.set(g.id, e); added++; await persist(e, { quiet: true }); continue; }
+    if (!local) { if (m.deleted) continue; const e = Object.assign({ segs: [] }, m, { cloud: false, srv: 0, pushed_at: 0, up: {}, broken: false }); mergeText(e); entries.push(e); for (const g of e.segs) wanted.set(g.id, e); added++; await persist(e, { quiet: true }); continue; }
     if ((m.updated_at || 0) > (local.updated_at || 0)) {
       if (m.deleted) { if (!local.deleted) { local.deleted = true; local.del_at = m.del_at || Date.now(); purgeEntryData(local).catch(() => {}); } local.updated_at = m.updated_at; }
-      else { Object.assign(local, m, { pushed_at: 0, up: local.up || {} }); for (const g of local.segs) wanted.set(g.id, local); }
+      else { Object.assign(local, m, { pushed_at: 0, up: local.up || {} }); mergeText(local); for (const g of local.segs) wanted.set(g.id, local); }
       updated++; await persist(local, { quiet: true });
     } else if (!local.deleted) for (const g of local.segs) wanted.set(g.id, local);
   }
