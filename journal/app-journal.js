@@ -125,28 +125,32 @@ function renderEntry() {
 // app; but that audio goes to those providers, and Chrome ends after a pause, so it is started
 // again while dictation is on. The private way for long memos stays the big microphone.
 const SR = self.SpeechRecognition || self.webkitSpeechRecognition;
-let dictRec = null, dictOn = false, dictBase = '', dictFinal = '', dictEntry = null;
+// dictBase: the text before dictation started; dictFinal: text of the recognition sessions that
+// ended; dictSess: the final results of the running session, rebuilt from the whole result list on
+// every event (Android Chrome re-sends the same final result several times and resets
+// resultIndex, so appending per event duplicates lines).
+let dictRec = null, dictOn = false, dictBase = '', dictFinal = '', dictSess = '', dictEntry = null;
 function dictLang() { const l = settings.lang; return l === 'de' ? 'de-DE' : l === 'en' ? 'en-US' : (navigator.language && /^(de|en)/.test(navigator.language) ? navigator.language : 'de-DE'); }
-function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictBase + dictFinal + (interim || ''); nt.scrollTop = nt.scrollHeight; }
+function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictBase + dictFinal + dictSess + (interim || ''); nt.scrollTop = nt.scrollHeight; }
 function startDictation() {
   const e = curEntry; if (!e || locked || passive || recording) return;
   if (settings.engine !== 'phone') { startClipDictation(e); return; }
   if (!SR) { popup('No dictation here', 'This browser has no built-in speech recognition. Use Chrome or Safari, the keyboard\'s microphone key, or choose a key or the cloud under Menu, Transcription.', [{ label: 'OK', cls: 'primary' }]); return; }
   commitText(); keepAwake();
   const cur = (e.text || '').replace(/\s+$/, '');
-  dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictEntry = e; dictOn = true;
+  dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictSess = ''; dictEntry = e; dictOn = true;
   const b = $('dictBtn'); if (b) b.textContent = '■ Stop';
   const run = () => {
     if (!dictOn || curEntry !== e) return;
-    const r = new SR(); dictRec = r;
+    const r = new SR(); dictRec = r; dictSess = '';
     r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
     r.onresult = ev => {
-      let interim = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) dictFinal += t.trim() + ' '; else interim += t; }
-      dictApply(interim);
+      let finals = '', interim = '';
+      for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals += t.trim() + ' '; else interim += t; }
+      dictSess = finals; dictApply(interim);
     };
     r.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { stopDictation(); popup('Microphone', 'Journal has no permission to use the microphone for dictation. Allow it in the browser settings for this site.', [{ label: 'OK', cls: 'primary' }]); } };
-    r.onend = () => { if (dictRec !== r) return; dictRec = null; if (dictOn) setTimeout(run, 150); };
+    r.onend = () => { if (dictRec !== r) return; dictRec = null; dictFinal += dictSess; dictSess = ''; if (dictOn) run(); };      // Android ends after every pause: on again at once
     try { r.start(); } catch (err) { stopDictation(); }
   };
   run();
@@ -184,7 +188,7 @@ function stopDictation() {
   if (clipRec) { dictOn = false; const c = clipRec; clipRec = null; clipStream = null; dictEntry = null; try { c.stop(); } catch (e) {} return; }
   dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
   if (!recording) releaseWake();
-  const e = dictEntry; dictEntry = null;
+  const e = dictEntry; dictEntry = null; dictFinal += dictSess; dictSess = '';
   if (e) { e.text = (dictBase + dictFinal).replace(/\s+$/, ''); if (curEntry === e) { dictApply(''); } persist(e); renderHome(); }
   const b = $('dictBtn'); if (b) b.textContent = '🎙 Dictate';
 }

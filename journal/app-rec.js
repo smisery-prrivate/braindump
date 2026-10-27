@@ -44,18 +44,18 @@ async function startRecording() {
 let liveRec = null;      // { rec, text (this segment), all, err, interim }
 function startLive() {
   if (!SR || liveRec) return;
-  liveRec = { rec: null, text: '', err: '', interim: '', on: true };
+  liveRec = { rec: null, text: '', sess: '', err: '', interim: '', on: true };      // text: sessions that ended; sess: the running session, rebuilt on every event (Android repeats finals)
   const run = () => {
     if (!liveRec || !liveRec.on || !recording || recPaused) return;
-    const r = new SR(); liveRec.rec = r;
+    const r = new SR(); liveRec.rec = r; liveRec.sess = '';
     r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
     r.onresult = ev => {
-      if (!liveRec) return; let interim = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) liveRec.text += t.trim() + ' '; else interim += t; }
-      liveRec.interim = interim; renderLive();
+      if (!liveRec) return; let finals = '', interim = '';
+      for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals += t.trim() + ' '; else interim += t; }
+      liveRec.sess = finals; liveRec.interim = interim; renderLive();
     };
     r.onerror = ev => { if (!liveRec) return; const e = ev.error || ''; if (e === 'no-speech' || e === 'aborted') return; liveRec.err = e === 'not-allowed' || e === 'service-not-allowed' ? 'no permission for speech recognition' : e === 'audio-capture' ? 'the phone cannot listen while it records' : e === 'network' ? 'no connection to the speech service' : e; if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture') liveRec.on = false; renderLive(); };
-    r.onend = () => { if (!liveRec || liveRec.rec !== r) return; liveRec.rec = null; if (liveRec.on && recording && !recPaused) setTimeout(run, 150); };
+    r.onend = () => { if (!liveRec || liveRec.rec !== r) return; liveRec.rec = null; liveRec.text += liveRec.sess; liveRec.sess = ''; if (liveRec.on && recording && !recPaused) run(); };
     try { r.start(); } catch (e) { liveRec.err = errText(e); liveRec.on = false; renderLive(); }
   };
   run(); renderLive();
@@ -63,14 +63,14 @@ function startLive() {
 function pauseLive() { if (!liveRec) return; const r = liveRec.rec; liveRec.rec = null; if (r) { try { r.stop(); } catch (e) {} } }
 function resumeLive() { if (liveRec && liveRec.on) { const was = liveRec; if (!was.rec) { liveRec = null; startLive(); if (liveRec) { liveRec.text = was.text; liveRec.err = was.err; } } } }
 // the text spoken during the segment that just ended; the liveRec buffer starts afresh
-function takeLive() { if (!liveRec) return undefined; const t = liveRec.text.trim(); liveRec.text = ''; liveRec.interim = ''; return t; }
+function takeLive() { if (!liveRec) return undefined; const t = (liveRec.text + liveRec.sess).trim(); liveRec.text = ''; liveRec.sess = ''; liveRec.interim = ''; return t; }
 function stopLive() { if (!liveRec) return; liveRec.on = false; pauseLive(); }
 function renderLive() {
   const el = $('recLive'); if (!el) return;
   if (!liveRec) { el.hidden = false; el.className = 'reclive'; el.textContent = settings.engine === 'phone' ? (settings.transcribe === 'off' ? 'Audio only.' : 'Audio only (no live recognition here). Tap the microphone instead of holding it to dictate.') : 'Audio; the text follows through ' + txEngineLabel() + ' after the recording.'; return; }
   el.hidden = false;
   if (liveRec.err && !liveRec.on) { el.textContent = 'No live text: ' + liveRec.err + '. The audio is kept. For text with the phone engine, stop and TAP the microphone to dictate instead; a key or the cloud can transcribe this audio later.'; el.className = 'reclive err'; return; }
-  const t = (liveRec.text + liveRec.interim).trim();
+  const t = (liveRec.text + liveRec.sess + liveRec.interim).trim();
   el.className = 'reclive'; el.textContent = t ? '…' + t.slice(-160) : (liveRec.err ? 'Listening… (' + liveRec.err + ')' : 'Listening…');
 }
 function startSegment() {
