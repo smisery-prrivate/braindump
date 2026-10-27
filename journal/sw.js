@@ -3,7 +3,7 @@
 // install time and served only from this set, so the page never runs a mix of two versions and
 // starts at once without waiting for the network. A new release arrives as a new worker that
 // WAITS; the page asks for the switch at a quiet moment right before it restarts.
-const CACHE = 'journal-v10';
+const CACHE = 'journal-v11';
 const ASSETS = ['.', 'index.html', 'vault.js', 'app-core.js', 'app-journal.js', 'app-rec.js', 'app-lock.js', 'app-sync.js', 'app-backup.js', 'app-boot.js', 'config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

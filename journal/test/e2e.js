@@ -77,18 +77,18 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.click('#popupBox button.quiet'); await sleep(300);
   await page.evaluate(() => { journalDebug.settings.engine = 'phone'; });
   await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
-  check(await page.isVisible('#dictBtn'), 'Dictate button in the note');
+  check(await page.isVisible('#dictBtn') && await page.isVisible('#claudeBtn'), 'Dictate and Claude buttons in the entry');
   await page.click('#dictBtn'); await sleep(300);
   check(await page.evaluate(() => !!(self.SpeechRecognition || self.webkitSpeechRecognition) || document.getElementById('popupBox').textContent.includes('No dictation')), 'dictation starts, or says the browser has none');
   if (await page.isVisible('#popup.open')) await page.click('#popupBox button');
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
 
-  // 2c2. a tap on the microphone opens a new entry and starts dictation; left empty, it is not kept
+  // 2c2. a tap on the microphone records; Discard drops it
   const before = await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length);
-  await page.click('#recBtn'); await page.waitForSelector('#entry:not([hidden])'); await sleep(400);
-  check(await page.evaluate(() => document.getElementById('noteText').value === '' && !document.getElementById('popup').classList.contains('open')), 'microphone tap opens a fresh entry for dictation');
-  await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
-  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before, 'an entry left empty is dropped');
+  await page.click('#recBtn'); await page.waitForSelector('#rec:not([hidden])'); await sleep(1500);
+  await page.click('#recDiscard'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await page.waitForSelector('#home:not([hidden])', { timeout: 15000 }); await sleep(500);
+  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before && !(await page.evaluate(() => journalDebug.recording)), 'microphone tap records; discard drops the entry');
+  check(await page.evaluate(() => { const e = journalDebug.entries[0]; return !!e.deleted && !e.segs.length; }), 'discarded recording kept no audio');
 
   // 2d. the phone engine: a memo recorded with it gets no "Transcribe?" question and says what it needs
   await page.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.segMin = 0.05; });

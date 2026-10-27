@@ -22,7 +22,7 @@ function renderHome() {
   $('searchRow').hidden = all.length < 4 && !q;
   const shown = all.filter(e => matches(e, q));
   if (!shown.length) {
-    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>' + (settings.engine === 'phone' ? 'Tap the microphone to dictate, hold it to record audio; the pen writes.' : 'Tap the microphone to record (the text follows after the stop), hold it to dictate; the pen writes.') + ' Everything is stored encrypted on this phone.') + '</div>';
+    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>Tap the microphone and talk, for as long as you like. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
     return;
   }
   let html = '', day = '';
@@ -78,13 +78,8 @@ async function newEntry(opts) {
   if (opts && opts.dictate) setTimeout(() => { if (curEntry === e) startDictation(); }, 80);
 }
 $('noteBtn').addEventListener('click', () => newEntry());
-// the microphone: a tap dictates into a new entry; holding it (600 ms) starts a long audio recording
-let micHold = null, micHeld = false;
-const micTapRecords = () => settings.engine !== 'phone';      // with a key or the cloud the main gesture is the recording: audio kept, text after the stop
-$('recBtn').addEventListener('pointerdown', ev => { if (ev.button > 0) return; micHeld = false; clearTimeout(micHold); micHold = setTimeout(() => { micHold = null; micHeld = true; if (navigator.vibrate) { try { navigator.vibrate(20); } catch (e) {} } if (micTapRecords()) newEntry({ dictate: true }); else startRecording(); }, 600); });
-for (const t of ['pointerup', 'pointercancel', 'pointerleave']) $('recBtn').addEventListener(t, () => { clearTimeout(micHold); micHold = null; });
-$('recBtn').addEventListener('click', () => { if (micHeld) { micHeld = false; return; } if (micTapRecords()) startRecording(); else newEntry({ dictate: true }); });
-$('recBtn').addEventListener('contextmenu', ev => ev.preventDefault());
+// the microphone: one gesture, one meaning. A tap records; the text follows through the engine.
+$('recBtn').addEventListener('click', () => startRecording());
 
 // ---------- entry view ----------
 let titleTimer = null, textTimer = null, focusTextNext = false;
@@ -114,11 +109,12 @@ function renderEntry() {
       '<div class="speed">' + [1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
       '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
   }
-  html += '<div class="txcard"><div class="t"><span>Text</span><button id="dictBtn" title="Dictate with the phone\'s speech recognition">' + (dictOn ? '■ Stop' : '🎙 Dictate') + '</button></div><textarea id="noteText" placeholder="Write, or tap Dictate…">' + esc(e.text || '') + '</textarea></div>';
+  html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate with the phone\'s speech recognition">' + (dictOn ? '■ Stop' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" placeholder="Write, or tap Dictate…">' + esc(e.text || '') + '</textarea></div>';
   body.innerHTML = html;
   renderTxState(); wirePlayer();
   $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
   $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : startDictation());
+  $('claudeBtn').addEventListener('click', () => { commitTitle(); commitText(); if (!entryText(e)) { toast('Nothing to send yet.'); return; } openInClaude(e); });
 }
 
 // ---------- dictation into the note, with the phone's own speech recognition ----------

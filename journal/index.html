@@ -111,6 +111,7 @@
   .txcard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
   .txcard .t { font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
   .txcard .t button { height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font-size: 13px; font-weight: 600; color: var(--accent); text-transform: none; letter-spacing: 0; }
+  .txcard .tbtns { display: flex; gap: 6px; }
   .txcard textarea { width: 100%; min-height: 160px; border: 1px solid transparent; border-radius: 10px; background: transparent; padding: 6px 8px; font-size: 16px; line-height: 1.5; resize: vertical; }
   .txcard textarea:focus { outline: none; border-color: var(--accent); background: #fcfbfe; }
   .txcard .st { font-size: 13px; color: var(--muted); line-height: 1.45; }
@@ -199,7 +200,7 @@
     <button id="noteBtn" class="fab small" aria-label="Write an entry" title="Write">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>
     </button>
-    <button id="recBtn" class="fab" aria-label="Dictate an entry; hold for a long audio recording" title="Tap: dictate. Hold: record audio">
+    <button id="recBtn" class="fab" aria-label="Record" title="Record">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg>
     </button>
     <div style="width:56px"></div>

@@ -155,7 +155,7 @@ async function stopRecording() {
   recStream = null; recEntry = null; recFinishing = false;
   const kept = e && !e.deleted && !recDiscarding && e.segs.length > 0;
   if (e && !e.deleted) {
-    if (!kept) { e.deleted = true; e.del_at = Date.now(); await persist(e); if (!recDiscarding) toast('Nothing was recorded.'); }
+    if (!kept) { e.deleted = true; e.del_at = Date.now(); e.state = 'done'; await persist(e); if (!recDiscarding) toast('Nothing was recorded.'); }
     else { e.state = 'done'; e.dur = entryDur(e); await persist(e); }
   }
   recDiscarding = false;
@@ -239,7 +239,8 @@ async function recoverRecordings() {
   }
   for (const e of entries.slice()) {
     if (e.broken || e.deleted || e.state !== 'rec') continue;
-    if (!e.segs.length) { e.deleted = true; e.del_at = Date.now(); } else { e.state = 'done'; e.dur = entryDur(e); }
+    if (!e.segs.length) { e.deleted = true; e.del_at = Date.now(); } else e.dur = entryDur(e);
+    e.state = 'done';
     await persist(e);
   }
 }

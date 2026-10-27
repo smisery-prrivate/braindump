@@ -4,12 +4,11 @@ Long voice memos, transcribed (German and English), encrypted on the device, loc
 optional encrypted cloud copy. A web app without build step, like Snapdoc and Brain Relieve.
 Concept and security model: [CONCEPT.md](CONCEPT.md).
 
-Without any set-up the app runs fully on the device. Pen: write an entry. Microphone: dictate
-one with the phone's own speech recognition (the default engine), the text appears live. Hold the
-microphone: a long audio recording, encrypted, transcribed live by the phone where it can, or
-later with a key or the cloud. Lock, backup file, search, sharing. Free and instant, no key, no account. Its
-limits: it cannot transcribe stored audio afterwards, it listens in one language at a time, and
-the audio goes to Google (Android) or Apple (iPhone) for recognition.
+Without any set-up the app runs fully on the device. Microphone: record, for as long as you
+like; the audio stays encrypted and playable under the text. Pen: write. Inside an entry,
+Dictate adds text through the phone's own speech recognition (free, but on most Android phones
+it cannot run while the phone records, and it stops at every pause). For recordings that become
+text, with pauses and all, add a key (below): two minutes.
 
 ## Transcription with a key (2 minutes)
 
