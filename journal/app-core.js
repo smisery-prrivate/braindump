@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -40,13 +40,16 @@ function writeGuard() {
 // transcribe: 'ask' (a question after every recording), 'auto' (as soon as a segment is stored),
 // 'off' (audio only). segMin: minutes per audio segment; every segment is a complete file of its
 // own, stored and encrypted the moment it ends, so a crash loses at most the open segment.
-let settings = { lockAfter: 60, transcribe: 'ask', segMin: 5, lang: 'auto', keepAudio: true };
+// engine: 'phone' (the phone's own speech recognition, live while recording and while dictating),
+// 'key' (the user's own key for a service), 'cloud' (the app's own cloud function, needs sign-in)
+let settings = { lockAfter: 60, transcribe: 'ask', segMin: 5, lang: 'auto', engine: 'phone' };
 const LOCK_AFTER = [5, 60, 300, 1800], SEG_MIN = [2, 5, 10], LANGS = ['auto', 'de', 'en'];
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SET_KEY) || '{}')); } catch (e) {}
 if (!LOCK_AFTER.includes(+settings.lockAfter)) settings.lockAfter = 60;      // only the offered values: nothing in plain storage can switch the lock off
 if (!SEG_MIN.includes(+settings.segMin)) settings.segMin = 5;
 if (!['ask', 'auto', 'off'].includes(settings.transcribe)) settings.transcribe = 'ask';
 if (!LANGS.includes(settings.lang)) settings.lang = 'auto';
+if (!['phone', 'key', 'cloud'].includes(settings.engine)) settings.engine = 'phone';
 const saveSettings = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch (e) {} };
 
 // ---------- IndexedDB ----------

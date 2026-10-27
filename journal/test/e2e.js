@@ -21,8 +21,8 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check(await page.textContent('#list') .then(t => t.includes('empty')), 'empty state shown');
   check(await page.isVisible('#recBtn'), 'record button visible');
 
-  // 2. record a short memo with segments every ~3 s
-  await page.evaluate(() => { journalDebug.settings.segMin = 0.05; });
+  // 2. record a short memo with segments every ~3 s (engine "own key" for the stored-audio paths below)
+  await page.evaluate(() => { journalDebug.settings.segMin = 0.05; journalDebug.settings.engine = 'key'; });
   await page.click('#recBtn');
   await page.waitForSelector('#rec:not([hidden])');
   await sleep(8000);
@@ -55,7 +55,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check((await page.textContent('#list')).includes('Erster Test') && (await page.textContent('#list')).includes('Eine Notiz'), 'home shows title and note');
 
   // 2b. direct mode: own key, no cloud project
-  await page.click('#menuBtn'); await page.waitForSelector('#sttKey');
+  await page.click('#menuBtn'); await page.waitForSelector('#setEngine'); await page.selectOption('#setEngine', 'key'); await page.waitForSelector('#sttKey');
   await page.selectOption('#sttProv', 'mistral'); await page.fill('#sttKey', 'short'); await page.click('#sttSave'); await sleep(300);
   check((await page.textContent('#sttHint')).includes('does not look'), 'a too short key is refused');
   await page.fill('#sttKey', 'mi_test_key_1234567890'); await page.click('#sttSave'); await sleep(500);
@@ -68,19 +68,32 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   console.log('direct', JSON.stringify(direct));
   check(direct.every(t => /Mistral transcript .*voxtral-mini-transcribe-3/.test(t)), 'transcribed straight from the phone with the own key');
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
-  await page.evaluate(async () => { for (const g of journalDebug.entries[0].segs) { g.st = 'todo'; g.text = ''; } await journalDebug.persist(journalDebug.entries[0]); await journalDebug.saveStt(null); });
+  await page.evaluate(async () => { for (const g of journalDebug.entries[0].segs) { g.st = 'todo'; g.text = ''; } await journalDebug.persist(journalDebug.entries[0]); await journalDebug.saveStt(null); journalDebug.settings.engine = 'cloud'; saveSettings(); });
 
   // 2c. long press on a card opens the options menu; a plain tap still opens the entry
   const box = await (await page.$('.card')).boundingBox();
   await page.mouse.move(box.x + 40, box.y + 20); await page.mouse.down(); await sleep(700); await page.mouse.up(); await sleep(300);
   check(await page.isVisible('#popup.open') && (await page.textContent('#popupBox')).includes('Delete entry') && await page.isVisible('#home:not([hidden])'), 'long press opens the menu without opening the entry');
   await page.click('#popupBox button.quiet'); await sleep(300);
+  await page.evaluate(() => { journalDebug.settings.engine = 'phone'; });
   await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
   check(await page.isVisible('#dictBtn'), 'Dictate button in the note');
   await page.click('#dictBtn'); await sleep(300);
   check(await page.evaluate(() => !!(self.SpeechRecognition || self.webkitSpeechRecognition) || document.getElementById('popupBox').textContent.includes('No dictation')), 'dictation starts, or says the browser has none');
   if (await page.isVisible('#popup.open')) await page.click('#popupBox button');
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
+
+  // 2d. the phone engine: a memo recorded with it gets no "Transcribe?" question and says what it needs
+  await page.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.segMin = 0.05; });
+  await page.click('#recBtn'); await page.waitForSelector('#rec:not([hidden])'); await sleep(4000);
+  const liveShown = await page.evaluate(() => !!(self.SpeechRecognition || self.webkitSpeechRecognition) ? !document.getElementById('recLive').hidden : document.getElementById('recLive').hidden);
+  check(liveShown, 'live line shown only when the browser has speech recognition');
+  await page.click('#recStop'); await page.waitForSelector('#entry:not([hidden])', { timeout: 15000 }); await sleep(400);
+  check(!(await page.isVisible('#popup.open')), 'no "Transcribe?" question with the phone engine');
+  await page.click('#txBtns button'); await sleep(300);
+  check((await page.textContent('#popupBox')).includes('Stored audio needs a key'), 'stored audio explains it needs a key or the cloud');
+  await page.click('#popupBox button.quiet'); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
+  await page.evaluate(async () => { const e = journalDebug.entries[0]; e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); journalDebug.settings.engine = 'cloud'; saveSettings(); }); await sleep(300);
 
   // 3. sign in via PKCE link, then transcribe
   await page.evaluate(() => { localStorage.setItem('journal.linkAsked', String(Date.now())); localStorage.setItem('journal.pkce', 'verifier'); });
@@ -94,14 +107,14 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.evaluate(() => back()); await sleep(500);
   await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
   await page.click('#txBtns button');
-  await page.waitForFunction(() => journalDebug.entries[0].segs.every(g => g.st === 'done'), null, { timeout: 20000 });
-  const tx = await page.evaluate(() => ({ text: document.getElementById('txText').value, segs: journalDebug.entries[0].segs.map(g => g.text) }));
+  await page.waitForFunction(() => journalDebug.entries.find(x => !x.deleted).segs.every(g => g.st === 'done'), null, { timeout: 20000 });
+  const tx = await page.evaluate(() => ({ text: document.getElementById('txText').value, segs: journalDebug.entries.find(x => !x.deleted).segs.map(g => g.text) }));
   console.log('transcript', JSON.stringify(tx));
   check(tx.segs.length >= 2 && /prompt: Mock transcript \d+/.test(tx.segs[1]), 'second segment got the first one\'s tail as prompt');
   check(/Mock transcript \d+ \(.*\n\nMock transcript \d+/.test(tx.text), 'transcript stitched in the entry view');
   // edit the transcript
   await page.fill('#txText', 'Edited by hand.'); await sleep(1200);
-  check(await page.evaluate(() => journalDebug.entries[0].tEdited && journalDebug.entries[0].transcript === 'Edited by hand.'), 'transcript edit stored');
+  check(await page.evaluate(() => journalDebug.entries.find(x => !x.deleted).tEdited && journalDebug.entries.find(x => !x.deleted).transcript === 'Edited by hand.'), 'transcript edit stored');
   await page.click('#entryBack');
 
   // 4. set the encryption password, sync, then verify the cloud holds only ciphertext
@@ -109,7 +122,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.fill('#pw1', 'correct horse battery'); await page.fill('#pw2', 'correct horse battery'); await page.click('#pwGo');
   await page.waitForFunction(() => journalDebug.syncState === '' && journalDebug.entries.every(e => e.pushed_at >= e.updated_at), null, { timeout: 20000 });
   const cloud = await fetchJson('http://localhost:' + PORT + '/__state');
-  check(cloud.entries.length === 1 && cloud.objects.length === e.segs && !JSON.stringify(cloud.entries).includes('Erster'), 'cloud holds 1 sealed entry and ' + cloud.objects.length + ' sealed segments');
+  check(cloud.entries.filter(r => !r.deleted).length === 1 && cloud.objects.length === e.segs && !JSON.stringify(cloud.entries).includes('Erster'), 'cloud holds 1 sealed entry and ' + cloud.objects.length + ' sealed segments');
   await page.evaluate(() => back()); await sleep(500);
 
   // 5. a transcription failure backs off and is shown, then recovers
@@ -175,10 +188,11 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p3.click('#playBtn'); await p3.waitForFunction(() => document.getElementById('tCur').textContent !== '0:00', null, { timeout: 15000 });
   check(await p3.evaluate(async () => !!(await journalDebug.segGet(journalDebug.entries.find(x => x.title === 'Erster Test').segs[0].id))), 'cloud segment fetched, decrypted and stored on play');
   // delete on device 3, tombstone reaches device 1
+  const erId = await p3.evaluate(() => journalDebug.entries.find(x => x.title === 'Erster Test').id);
   await p3.click('#entryMore'); await p3.click('#popupBox button.danger'); await sleep(7000);
   await p3.waitForFunction(() => journalDebug.entries.find(x => x.title === 'Erster Test').deleted && journalDebug.syncState === '', null, { timeout: 20000 });
-  let cloud2; for (let i = 0; i < 40; i++) { cloud2 = await fetchJson('http://localhost:' + PORT + '/__state'); if (cloud2.entries.find(r => r.deleted) && cloud2.objects.length < cloud.objects.length + 3) break; await sleep(500); }
-  check(cloud2.entries.find(r => r.deleted) && cloud2.objects.length < cloud.objects.length + 10, 'delete marker in the cloud, objects removed: ' + cloud2.objects.length);
+  let cloud2; for (let i = 0; i < 40; i++) { cloud2 = await fetchJson('http://localhost:' + PORT + '/__state'); if (cloud2.entries.find(r => r.id === erId && r.deleted) && cloud2.objects.length < cloud.objects.length + 3) break; await sleep(500); }
+  check(cloud2.entries.find(r => r.id === erId && r.deleted) && cloud2.objects.length < cloud.objects.length + 10, 'delete marker in the cloud, objects removed: ' + cloud2.objects.length);
   await page.evaluate(() => journalDebug.syncNow());
   await page.waitForFunction(() => journalDebug.entries.find(x => x.title === 'Erster Test').deleted, null, { timeout: 20000 });
   check(!(await page.textContent('#list')).includes('Erster Test'), 'deletion propagated to the first device');

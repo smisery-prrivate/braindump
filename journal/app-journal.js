@@ -122,7 +122,8 @@ function dictLang() { const l = settings.lang; return l === 'de' ? 'de-DE' : l =
 function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictBase + dictFinal + (interim || ''); nt.scrollTop = nt.scrollHeight; }
 function startDictation() {
   const e = curEntry; if (!e || locked || passive || recording) return;
-  if (!SR) { popup('No dictation here', 'This browser has no built-in speech recognition. Use Chrome or Safari, or the keyboard\'s microphone key.', [{ label: 'OK', cls: 'primary' }]); return; }
+  if (settings.engine !== 'phone') { startClipDictation(e); return; }
+  if (!SR) { popup('No dictation here', 'This browser has no built-in speech recognition. Use Chrome or Safari, the keyboard\'s microphone key, or choose a key or the cloud under Menu, Transcription.', [{ label: 'OK', cls: 'primary' }]); return; }
   commitText();
   const cur = (e.text || '').replace(/\s+$/, '');
   dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictEntry = e; dictOn = true;
@@ -142,8 +143,37 @@ function startDictation() {
   };
   run();
 }
+// with a key or the cloud: a short clip is recorded and sent to the service, the text is appended
+let clipRec = null, clipStream = null, clipChunks = [];
+async function startClipDictation(e) {
+  if (!txAvailable()) { wantTranscribe(e); return; }
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: { ideal: 1 }, noiseSuppression: true, autoGainControl: true } }); } catch (err) { popup('Microphone', 'The microphone could not be started: ' + errText(err), [{ label: 'OK', cls: 'primary' }]); return; }
+  if (curEntry !== e || dictOn) { for (const t of stream.getTracks()) t.stop(); return; }
+  const mime = pickMime(); let r;
+  try { r = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined); } catch (err) { for (const t of stream.getTracks()) t.stop(); toast('The recorder could not be started.'); return; }
+  commitText(); dictEntry = e; dictOn = true; clipRec = r; clipStream = stream; clipChunks = [];
+  const b = $('dictBtn'); if (b) b.textContent = '■ Stop';
+  r.ondataavailable = ev => { if (ev.data && ev.data.size) clipChunks.push(ev.data); };
+  r.onstop = async () => {
+    for (const t of stream.getTracks()) { try { t.stop(); } catch (err) {} }
+    const blob = new Blob(clipChunks, { type: r.mimeType || mime || 'audio/webm' }); clipChunks = [];
+    const nt = $('noteText'); if (nt && curEntry === e) nt.placeholder = 'Transcribing…';
+    const bb = $('dictBtn'); if (bb) { bb.textContent = '… Transcribing'; bb.disabled = true; }
+    try {
+      if (blob.size < 1000) throw new Error('nothing was recorded');
+      const out = await transcribeRequest(blob, { mime: blob.type }, (e.text || '').trim().slice(-200), e.lang || settings.lang);
+      const cur = (e.text || '').replace(/\s+$/, '');
+      e.text = (cur ? cur + '\n' : '') + out.text;
+      if (curEntry === e) { const t = $('noteText'); if (t) { t.value = e.text; t.scrollTop = t.scrollHeight; } }
+      await persist(e); renderHome();
+    } catch (err) { toast('Dictation failed: ' + errText(err)); }
+    finally { const b2 = $('dictBtn'); if (b2) { b2.textContent = '🎙 Dictate'; b2.disabled = false; } if (nt) nt.placeholder = 'Write, or tap Dictate…'; }
+  };
+  try { r.start(1000); } catch (err) { stopDictation(); }
+}
 function stopDictation() {
   if (!dictOn) return;
+  if (clipRec) { dictOn = false; const c = clipRec; clipRec = null; clipStream = null; dictEntry = null; try { c.stop(); } catch (e) {} return; }
   dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
   const e = dictEntry; dictEntry = null;
   if (e) { e.text = (dictBase + dictFinal).replace(/\s+$/, ''); if (curEntry === e) { dictApply(''); } persist(e); renderHome(); }
@@ -163,7 +193,8 @@ function renderTxState() {
   let msg = '', cls = '';
   if (s === 'busy') { msg = 'Transcribing… ' + done + ' of ' + segs.length + ' parts done.'; cls = 'busy'; }
   else if (s === 'fail') { const f = segs.find(g => g.st === 'fail'); msg = 'Transcription failed: ' + (f && f.err || 'unknown error') + (txFailUntil(e) ? ' · trying again ' + txFailUntil(e) : ''); cls = 'fail'; }
-  else if (s === 'todo') msg = e.tx ? (txAvailable() ? 'Waiting to transcribe…' : 'Set up transcription in the menu.') : 'Not transcribed. The audio is stored encrypted here.';
+  else if (s === 'todo') msg = e.tx ? (txAvailable() ? 'Waiting to transcribe…' : settings.engine === 'phone' ? 'Stored audio needs a key or the cloud (Menu, Transcription).' : 'Set up transcription in the menu.') : 'Not transcribed. The audio is stored encrypted here.' + (settings.engine === 'phone' ? ' The phone only transcribes live while recording; use a key or the cloud for this one.' : '');
+  else if (s === 'done' && e.segs.every(g => g.live)) { msg = (e.tEdited ? 'Edited by you.' : 'Transcribed live by the phone while recording.'); }
   else if (s === 'off') msg = 'Audio only.';
   else if (s === 'done') msg = (e.tEdited ? 'Edited by you.' : 'Transcribed.') + (e.lang && e.lang !== 'auto' ? '' : '');
   if (e.state === 'rec') { msg = 'Still recording.'; cls = ''; }

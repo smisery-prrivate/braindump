@@ -149,24 +149,29 @@ function renderSheet() {
 }
 function renderTxBox() {
   const box = $('txBox'); if (!box) return;
-  const viaCloud = !stt && SYNC && session;
-  box.innerHTML = '<div class="rowopt"><span>Transcribe memos</span><select id="setTx"><option value="ask">Ask after each memo</option><option value="auto">Automatically</option><option value="off">Never (audio only)</option></select></div>' +
-    '<div class="rowopt"><span>Spoken language</span><select id="setLang"><option value="auto">German and English (detect)</option><option value="de">German</option><option value="en">English</option></select></div>' +
-    (stt ? '<div class="statecard"><div class="t">✓ Own key: ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Each part of a memo goes straight from this phone to the service and the text comes back; nothing passes through any other server. The service may keep audio for a while under its own terms.</div></div>' +
-      '<button class="btn quiet" id="sttOff">Remove the key</button>'
-    : '<p><b>Simplest way: your own key.</b> Mistral (Paris) transcribes German and English for a few cents per hour: sign up at console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create. (Mistral\'s free Experiment plan lets them train on your audio, so take the paid one for a journal.) The key is stored encrypted on this device and used only from here.</p>' +
+  const eng = settings.engine;
+  let engBox = '';
+  if (eng === 'phone') engBox = '<div class="hint">The phone\'s own speech recognition (Google on Android, Apple on iPhone) listens live while you record a memo and while you dictate a note. Free, no key, no account. That audio goes to Google or Apple for recognition; the recording itself stays encrypted here. It cannot transcribe stored audio afterwards; for that, switch to a key or the cloud function.</div>';
+  else if (eng === 'key') engBox = stt ? '<div class="statecard"><div class="t">✓ ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Memos and dictated notes go straight from this phone to the service and the text comes back. The service may keep audio for a while under its own terms.</div></div><button class="btn quiet" id="sttOff">Remove the key</button>'
+    : '<p>Mistral (Paris) transcribes German and English for a few cents per hour: sign up at console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create. (Mistral\'s free Experiment plan lets them train on your audio, so take the paid one for a journal.) The key is stored encrypted on this device and used only from here.</p>' +
       '<select id="sttProv">' + Object.keys(STT).map(k => '<option value="' + k + '">' + esc(STT[k].name) + '</option>').join('') + '</select>' +
-      '<input id="sttKey" type="password" autocomplete="off" placeholder="API key"><button class="btn primary" id="sttSave">Use this key</button>' +
-      (viaCloud ? '<div class="hint">Currently transcribing through your cloud function. A key here takes precedence.</div>' : SYNC ? '<div class="hint">Alternative: sign in below and run the transcription function in your own cloud project; then no key is kept on the phone.</div>' : '')) +
+      '<input id="sttKey" type="password" autocomplete="off" placeholder="API key"><button class="btn primary" id="sttSave">Use this key</button>';
+  else engBox = SYNC ? '<div class="hint">' + (session ? 'Signed in: memos and dictated notes go to the transcription function in your own cloud project; no key is kept on the phone.' : 'Sign in under Cloud below. The transcription function in your own cloud project holds the key; nothing is kept on the phone.') + '</div>' : '<div class="hint">The cloud is not switched on in this version.</div>';
+  box.innerHTML = '<div class="rowopt"><span>Engine</span><select id="setEngine"><option value="phone">Phone\'s speech recognition</option><option value="key">Own key (Mistral, …)</option><option value="cloud">Own cloud function</option></select></div>' + engBox +
+    '<div class="rowopt"><span>Memos</span><select id="setTx">' + (eng === 'phone' ? '<option value="ask">Transcribe live while recording</option>' : '<option value="ask">Ask after each memo</option><option value="auto">Automatically</option>') + '<option value="off">Never (audio only)</option></select></div>' +
+    '<div class="rowopt"><span>Spoken language</span><select id="setLang"><option value="auto">German and English (detect)</option><option value="de">German</option><option value="en">English</option></select></div>' +
+    (eng === 'phone' ? '<div class="hint">The phone\'s recognition listens in one language at a time; "detect" uses the phone\'s language.</div>' : '') +
     '<div class="hint" id="sttHint"></div>';
-  $('setTx').value = settings.transcribe; $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } });
+  $('setEngine').value = eng; $('setEngine').addEventListener('change', e => { settings.engine = e.target.value; if (settings.engine === 'phone' && settings.transcribe === 'auto') settings.transcribe = 'ask'; saveSettings(); abortTranscribe(); renderTxBox(); renderSyncLine(); scheduleTranscribe(); });
+  $('setTx').value = eng === 'phone' && settings.transcribe === 'auto' ? 'ask' : settings.transcribe;
+  $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } });
   $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); });
   if ($('sttSave')) $('sttSave').addEventListener('click', async () => {
     const key = $('sttKey').value.trim(), provider = $('sttProv').value, hint = $('sttHint');
     if (key.length < 16) { hint.textContent = 'That does not look like an API key.'; return; }
     try { await saveStt({ provider, key }); toast('Transcription is set up'); renderTxBox(); renderSyncLine(); scheduleTranscribe(); } catch (e) { hint.textContent = 'Not saved: ' + errText(e); }
   });
-  if ($('sttOff')) $('sttOff').addEventListener('click', () => popup('Remove the key?', 'Transcription stops until a key is entered again or you sign in to a cloud project.', [
+  if ($('sttOff')) $('sttOff').addEventListener('click', () => popup('Remove the key?', 'Transcription with it stops until a key is entered again.', [
     { label: 'Remove', cls: 'danger', fn: async () => { abortTranscribe(); await saveStt(null); renderTxBox(); renderSyncLine(); } }, { label: 'Keep it', cls: 'quiet' }]));
 }
 const LOCK_TEXT = {

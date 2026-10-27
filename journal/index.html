@@ -76,6 +76,8 @@
   .meter { width: 100%; max-width: 320px; height: 56px; display: flex; align-items: center; gap: 3px; justify-content: center; }
   .meter i { display: block; width: 5px; height: 6px; border-radius: 3px; background: #8f7fc4; transition: height .08s; }
   .recinfo { font-size: 13px; color: #9b94ad; text-align: center; max-width: 320px; line-height: 1.5; }
+  .reclive { font-size: 15px; color: #e6e1f0; text-align: center; max-width: 340px; line-height: 1.45; min-height: 44px; max-height: 88px; overflow: hidden; }
+  .reclive.err { color: #f0b6a6; font-size: 13px; }
   .recbot { display: flex; align-items: center; gap: 18px; margin-top: 10px; }
   .recbtn { width: 64px; height: 64px; border-radius: 50%; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.1); color: #fff; font-size: 15px; font-weight: 600; }
   .recbtn:disabled { opacity: .4; }
@@ -198,6 +200,7 @@
     <div class="recstate"><span class="recdot" id="recDot"></span><span id="recState">Recording</span></div>
     <div class="rectime" id="recTime">0:00</div>
     <div class="meter" id="meter"></div>
+    <div class="reclive" id="recLive" hidden></div>
     <div class="recinfo" id="recInfo">Every few minutes a finished part is encrypted and stored. Keep the screen on.</div>
     <div class="recbot">
       <button id="recPause" class="recbtn">Pause</button>

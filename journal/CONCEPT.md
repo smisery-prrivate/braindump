@@ -17,20 +17,23 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   encrypted as *parts*. A crash, a killed app or a dead battery loses at most the last ten
   seconds: the next start assembles the parts into a segment and closes the entry. A memo with
   nothing in it is dropped.
-- **Transcribe.** Two ways in. *Own key* (the simple way): a key for Mistral (EU), ElevenLabs,
-  Deepgram or OpenAI, entered once in the menu, stored encrypted in the vault;
-  each segment goes straight from the phone to the service. *Own cloud function*: sign in, the
-  key stays on the server (see below). German and English, also mixed in one memo. Segments are transcribed one after
+- **Transcribe.** One *engine* setting (Menu, Transcription) decides how memos and dictated
+  notes become text. *Phone* (the default): the phone's own speech recognition listens live
+  while a memo records and while a note is dictated; free, no key, no account, but it cannot
+  read stored audio afterwards, listens in one language at a time, and that audio goes to
+  Google or Apple. *Own key*: Mistral (EU), ElevenLabs, Deepgram or OpenAI, entered once,
+  stored encrypted in the vault; each segment, and each dictated clip, goes straight from the
+  phone to the service. *Own cloud function*: sign in, the key stays on the server (see below).
+  Key and cloud understand German and English mixed in one memo and transcribe stored audio. Segments are transcribed one after
   the other; the last words of the previous segment go along as a hint, so a sentence cut by the
   segment border continues correctly. The transcript is editable; your edits are kept and marked.
   "Transcribe again" starts over. A refused segment is retried after a growing pause (1, 4, 16 …
   minutes, an hour at most) and the entry says why meanwhile. Setting: ask after each memo (the
   default), always, or never (audio only).
-- **Dictate into a note.** The note field has a Dictate button that uses the phone's own
-  speech recognition (Web Speech API: Google on Android Chrome, Apple on iPhone): free, instant,
-  no key and no second app, but that audio goes to those providers and Chrome stops after
-  pauses (the app starts it again while dictation is on). The big microphone stays the private
-  way for long memos. "Open in Claude" in the entry menu hands the entry's text to the Claude app
+- **Dictate into a note.** The note field has a Dictate button that follows the engine: with
+  the phone engine the text appears live (Chrome stops after pauses; the app starts it again
+  while dictation is on); with a key or the cloud a short clip is recorded and sent, and the
+  text is appended. "Open in Claude" in the entry menu hands the entry's text to the Claude app
   or claude.ai as the first message of a new chat.
 - **Long press** on an entry in the list: a menu with Open, Share as text, Open in Claude, Delete.
 - **Journal.** Entries by day, newest first, with time, title, the first lines, length and state.
@@ -193,6 +196,8 @@ See `README.md`.
 
 ## History
 
+- v4 (2026-10-27): one engine setting for memos and notes: phone (live while recording), own
+  key, or cloud function.
 - v3 (2026-10-27): dictation into the note with the phone's own speech recognition, "Open in
   Claude", long-press menu on entries.
 - v2 (2026-10-26): transcription with the user's own key straight from the phone (Mistral,

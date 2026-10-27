@@ -20,7 +20,9 @@ const STT = {
   openai: { name: 'OpenAI gpt-4o-transcribe (US)', url: 'https://api.openai.com/v1/audio/transcriptions', model: 'gpt-4o-transcribe', kind: 'openai', signup: 'platform.openai.com' }
 };
 const sttUrl = p => (CFG.sttEndpoints && CFG.sttEndpoints[p]) || STT[p].url;      // sttEndpoints: only for the test mock
-const txAvailable = () => !!stt || !!(SYNC && session);
+// can stored audio be transcribed right now? (the phone's recognition only listens live)
+const txAvailable = () => settings.engine === 'key' ? !!stt : settings.engine === 'cloud' ? !!(SYNC && session) : false;
+const txEngineLabel = () => settings.engine === 'key' ? (stt ? STT[stt.provider].name.split(' (')[0] : 'your own key (not set yet)') : settings.engine === 'cloud' ? 'your cloud function' : 'the phone\'s speech recognition';
 async function loadStt() { stt = null; try { const r = await idb.get('meta', 'stt'); if (r) stt = await Vault.openJson(r.data, 'jn|stt'); } catch (e) { stt = null; } if (stt && !STT[stt.provider]) stt = null; }
 async function saveStt(cfg) { stt = cfg; if (cfg) await idb.put('meta', { id: 'stt', data: await Vault.sealJson(cfg, 'jn|stt') }); else await idb.del('meta', 'stt'); }
 const jwtPayload = t => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
@@ -137,13 +139,17 @@ async function sendMagicLink(email) {
 // so a sentence cut by the segment border is continued correctly. A refused segment is tried again
 // after a growing pause; the entry shows the reason meanwhile.
 function askTranscribe(e) {
-  popup('Transcribe this memo?', (stt ? 'The audio is sent, encrypted in transit, straight to ' + STT[stt.provider].name.split(' (')[0] + ' with your key.' : 'The audio is sent, encrypted in transit, to your own cloud function and from there to the transcription service.') + ' The text comes back and is stored encrypted here. German and English are both understood.', [
+  popup('Transcribe this memo?', (settings.engine === 'key' && stt ? 'The audio is sent, encrypted in transit, straight to ' + STT[stt.provider].name.split(' (')[0] + ' with your key.' : 'The audio is sent, encrypted in transit, to your own cloud function and from there to the transcription service.') + ' The text comes back and is stored encrypted here. German and English are both understood.', [
     { label: 'Transcribe', cls: 'primary', fn: () => wantTranscribe(e) },
     { label: 'Always transcribe', fn: () => { settings.transcribe = 'auto'; saveSettings(); wantTranscribe(e); } },
     { label: 'Not now', cls: 'quiet' }]);
 }
 function wantTranscribe(e) {
-  if (!txAvailable()) { toast(SYNC ? 'Set up transcription in the menu first (own key, or sign in).' : 'Set up transcription in the menu first.'); openSheet(); return; }
+  if (!txAvailable()) {
+    if (settings.engine === 'phone') popup('Stored audio needs a key or the cloud', 'The phone\'s speech recognition only listens live while you record. To transcribe this recording afterwards, choose "Own key" or "Cloud function" under Menu, Transcription.', [{ label: 'Open the menu', cls: 'primary', fn: openSheet }, { label: 'Not now', cls: 'quiet' }]);
+    else { toast(settings.engine === 'key' ? 'Enter your key under Menu, Transcription.' : 'Sign in under Menu, Cloud.'); openSheet(); }
+    return;
+  }
   e.tx = true;
   for (const g of e.segs) if (g.st === 'off' || g.st === 'fail' || g.st === 'busy') { g.st = 'todo'; txFail.delete(g.id); }
   persist(e); renderAll(); scheduleTranscribe(0);
@@ -181,7 +187,7 @@ async function transcribeNow() {
       const { e, g } = job;
       g.st = 'busy'; delete g.err; if (curEntry === e) renderTxState(); renderHome();
       try {
-        if (!stt && !(await ensureSession())) throw new Error('Not signed in.');
+        if (settings.engine === 'cloud' && !(await ensureSession())) throw new Error('Not signed in.');
         const blob = await (typeof segBlob === 'function' ? segBlob(e, g) : segGet(g.id, g.mime));
         if (!blob) throw new Error('the audio of this part is not on this device');
         if (blob.size > MAX_SEG) throw new Error('this part is too large');
@@ -204,7 +210,8 @@ async function transcribeNow() {
   } finally { txBusy = false; txCtl = null; setBusy(false); if (nextTxJob() && !locked && !passive) scheduleTranscribe(30000); }
 }
 async function transcribeRequest(blob, g, prompt, lang) {
-  if (stt) return transcribeDirect(blob, g, prompt, lang);
+  if (settings.engine === 'key') { if (!stt) throw new Error('no key set'); return transcribeDirect(blob, g, prompt, lang); }
+  if (!session) throw new Error('Not signed in.');
   const fd = new FormData();
   fd.append('file', blob, 'segment.' + extOf(g.mime));
   if (lang && lang !== 'auto') fd.append('language', lang);
@@ -376,7 +383,7 @@ async function syncNow() {
         const r = await api('POST', '/rest/v1/jn_entries', { headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ id: e.id, user_id: uid, meta, updated_at: e.updated_at, deleted: !!e.deleted }) });
         if (!r.ok) throw await httpError('Saving the entry', r);
         const rows = await r.json(); const srv = rows && rows[0] ? +rows[0].synced_at : 0;
-        if (e.updated_at === u) { e.pushed_at = u; e.cloud = true; if (srv) { e.srv = srv; cursor.at = Math.max(cursor.at || 0, srv); } }
+        if (e.updated_at === u) { e.pushed_at = u; e.cloud = true; if (srv) e.srv = srv; }      // the bookmark is not moved by a push: rows other devices wrote meanwhile must still be pulled
         upFail.delete(e.id);
         if (e.deleted && !e.purged && e.segs && e.segs.length) {
           const r2 = await api('DELETE', '/storage/v1/object/jn', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: e.segs.map(g => objName(uid, g.id)) }) });
@@ -426,8 +433,9 @@ function lastOkLabel() {
 function renderSyncLine() {
   const el = $('syncline'); el.className = 'subline';
   if (txBusy) { el.textContent = '↻ Transcribing…'; return; }
-  if (!SYNC) { el.textContent = 'Encrypted on this device' + (stt ? ' · transcription with your own key' : ' · tap to set up transcription'); return; }
-  if (!session) { el.textContent = 'Encrypted on this device · ' + (stt ? 'transcription with your own key · tap for a cloud copy' : 'tap to set up transcription or a cloud copy'); return; }
+  const eng = settings.engine === 'phone' ? 'transcribes with the phone' : settings.engine === 'key' ? (stt ? 'transcribes with your key' : 'key missing · tap') : (session ? 'transcribes via your cloud' : 'sign in for transcription · tap');
+  if (!SYNC) { el.textContent = 'Encrypted on this device · ' + eng; return; }
+  if (!session) { el.textContent = 'Encrypted on this device · ' + eng; return; }
   if (!Vault.hasCloudKey(session.uid)) {
     el.className = 'subline err';
     el.textContent = syncState === 'error' ? '⚠ ' + syncMsg : keyNeed ? 'The cloud copy is waiting for your encryption password · tap here' : 'Connecting to the cloud…';

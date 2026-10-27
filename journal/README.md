@@ -4,11 +4,15 @@ Long voice memos, transcribed (German and English), encrypted on the device, loc
 optional encrypted cloud copy. A web app without build step, like Snapdoc and Brain Relieve.
 Concept and security model: [CONCEPT.md](CONCEPT.md).
 
-Without any set-up the app runs fully on the device: record, play, notes, lock, backup file.
+Without any set-up the app runs fully on the device: record, play, notes, lock, backup file,
+and transcription with the phone's own speech recognition (the default engine): it listens live
+while a memo records and while a note is dictated. Free and instant, no key, no account. Its
+limits: it cannot transcribe stored audio afterwards, it listens in one language at a time, and
+the audio goes to Google (Android) or Apple (iPhone) for recognition.
 
-## Transcription, the simple way (2 minutes)
+## Transcription with a key (2 minutes)
 
-Menu, Transcription, choose **Mistral**, paste an API key, done. Mistral is European (Paris);
+Menu, Transcription, engine **Own key**, choose **Mistral**, paste an API key, done. Mistral is European (Paris);
 its Voxtral model transcribes German and English for a few cents per hour of audio. Sign up at
 console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create API Key. Avoid the free
 Experiment plan for a journal: it lets Mistral train on what you send. The key is stored

@@ -36,6 +36,42 @@ async function startRecording() {
   keepAwake(); startMeter(stream);
   recTick = setInterval(renderRecTime, 250);
   startSegment();
+  if (settings.engine === 'phone' && settings.transcribe !== 'off') startLive();
+}
+// ---------- liveRec recognition with the phone's own speech recognition ----------
+// Runs beside the recorder. Final results are collected per segment; a segment that ends takes
+// the text spoken while it ran. Chrome ends recognition after a pause, so it is started again.
+let liveRec = null;      // { rec, text (this segment), all, err, interim }
+function startLive() {
+  if (!SR || liveRec) return;
+  liveRec = { rec: null, text: '', err: '', interim: '', on: true };
+  const run = () => {
+    if (!liveRec || !liveRec.on || !recording || recPaused) return;
+    const r = new SR(); liveRec.rec = r;
+    r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+    r.onresult = ev => {
+      if (!liveRec) return; let interim = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) liveRec.text += t.trim() + ' '; else interim += t; }
+      liveRec.interim = interim; renderLive();
+    };
+    r.onerror = ev => { if (!liveRec) return; const e = ev.error || ''; if (e === 'no-speech' || e === 'aborted') return; liveRec.err = e === 'not-allowed' || e === 'service-not-allowed' ? 'no permission for speech recognition' : e === 'audio-capture' ? 'the phone cannot listen while it records' : e === 'network' ? 'no connection to the speech service' : e; if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture') liveRec.on = false; renderLive(); };
+    r.onend = () => { if (!liveRec || liveRec.rec !== r) return; liveRec.rec = null; if (liveRec.on && recording && !recPaused) setTimeout(run, 150); };
+    try { r.start(); } catch (e) { liveRec.err = errText(e); liveRec.on = false; renderLive(); }
+  };
+  run(); renderLive();
+}
+function pauseLive() { if (!liveRec) return; const r = liveRec.rec; liveRec.rec = null; if (r) { try { r.stop(); } catch (e) {} } }
+function resumeLive() { if (liveRec && liveRec.on) { const was = liveRec; if (!was.rec) { liveRec = null; startLive(); if (liveRec) { liveRec.text = was.text; liveRec.err = was.err; } } } }
+// the text spoken during the segment that just ended; the liveRec buffer starts afresh
+function takeLive() { if (!liveRec) return undefined; const t = liveRec.text.trim(); liveRec.text = ''; liveRec.interim = ''; return t; }
+function stopLive() { if (!liveRec) return; liveRec.on = false; pauseLive(); }
+function renderLive() {
+  const el = $('recLive'); if (!el) return;
+  if (!liveRec) { el.hidden = true; return; }
+  el.hidden = false;
+  if (liveRec.err && !liveRec.on) { el.textContent = 'Live transcription off: ' + liveRec.err + '. The audio is kept; transcribe it later with a key or the cloud.'; el.className = 'reclive err'; return; }
+  const t = (liveRec.text + liveRec.interim).trim();
+  el.className = 'reclive'; el.textContent = t ? '…' + t.slice(-160) : (liveRec.err ? 'Listening… (' + liveRec.err + ')' : 'Listening…');
 }
 function startSegment() {
   if (!recording || !recStream) return;
@@ -62,6 +98,7 @@ function armSegTimer(ms) { clearTimeout(segTimer); segTimer = setTimeout(rollSeg
 function rollSegment() {
   if (!recording || recPaused || !recorder || recorder.state !== 'recording') return;
   const r = recorder, seg = recSeg; recorder = null; recSeg = null;
+  seg.liveRec = takeLive();
   pendingSegList.push(seg);
   try { r.stop(); } catch (e) { finishSegment(seg); }
   startSegment();
@@ -77,7 +114,8 @@ async function finishSegment(seg) {
   segWrites++;
   try {
     await segPut(seg.id, blob, { entry: e.id, mime: seg.mime, size: blob.size, dur, i: seg.i });
-    e.segs.push({ id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: '', st: settings.transcribe === 'off' && !e.tx ? 'off' : 'todo' });
+    const liveText = typeof seg.liveRec === 'string' ? seg.liveRec : '';
+    e.segs.push({ id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: liveText, st: liveText ? 'done' : (settings.transcribe === 'off' && !e.tx ? 'off' : 'todo'), live: !!liveText });
     e.segs.sort((a, b) => a.i - b.i); e.dur = entryDur(e);
     if (await persist(e)) await partsDel(seg.id); else throw new Error('the entry could not be saved');      // the parts stay until the entry names the segment
     if (e.tx) scheduleTranscribe();
@@ -91,10 +129,12 @@ function pauseRecording() {
   if (!recPaused) {
     try { recorder.pause(); } catch (e) { return; }
     recPaused = true; recPausedAt = Date.now(); if (recSeg) recSeg.pausedAt = recPausedAt; clearTimeout(segTimer);
+    pauseLive();
   } else {
     try { recorder.resume(); } catch (e) { return; }
     const gap = Date.now() - recPausedAt; recPausedMs += gap; if (recSeg) { recSeg.pausedMs += gap; recSeg.pausedAt = 0; }
     recPaused = false;
+    resumeLive();
     const used = recSeg ? Date.now() - recSeg.start - recSeg.pausedMs : 0;
     armSegTimer(Math.max(2000, settings.segMin * 60000 - used));
   }
@@ -104,7 +144,8 @@ async function stopRecording() {
   if (!recording) return;
   recording = false; recFinishing = true; clearTimeout(segTimer); clearInterval(recTick);
   const e = recEntry, r = recorder, seg = recSeg; recorder = null; recSeg = null;
-  if (seg) pendingSegList.push(seg);
+  if (seg) { seg.liveRec = takeLive(); pendingSegList.push(seg); }
+  stopLive(); liveRec = null;
   const stopped = new Promise(res => { if (!r || r.state === 'inactive') { if (seg) finishSegment(seg); res(); return; } const t = setTimeout(() => { if (seg) finishSegment(seg); res(); }, 4000); r.addEventListener('stop', () => { clearTimeout(t); res(); }, { once: true }); try { r.requestData && r.state === 'recording' && r.requestData(); } catch (err) {} try { r.stop(); } catch (err) { clearTimeout(t); if (seg) finishSegment(seg); res(); } });
   stopMeter(); releaseWake();
   await stopped;
@@ -120,7 +161,7 @@ async function stopRecording() {
   closeScreen('rec');
   if (kept) afterPop(() => {
     openEntry(e);
-    if (!e.tx && settings.transcribe === 'ask' && e.segs.some(g => g.st === 'todo')) askTranscribe(e);
+    if (!e.tx && settings.transcribe === 'ask' && settings.engine !== 'phone' && e.segs.some(g => g.st === 'todo')) askTranscribe(e);
   });
   renderHome();
 }
@@ -135,6 +176,7 @@ function leaveRec() { if (recording) stopRecording(); }
 
 // ---------- screen ----------
 function renderRec() {
+  renderLive();
   $('recState').textContent = recPaused ? 'Paused' : 'Recording';
   $('recDot').classList.toggle('paused', recPaused);
   $('recPause').textContent = recPaused ? 'Resume' : 'Pause';
