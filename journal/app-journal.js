@@ -22,7 +22,7 @@ function renderHome() {
   $('searchRow').hidden = all.length < 4 && !q;
   const shown = all.filter(e => matches(e, q));
   if (!shown.length) {
-    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>Tap the microphone and talk, or the pen and write. Hold the microphone for a long audio recording. Everything is stored encrypted on this phone.') + '</div>';
+    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>' + (settings.engine === 'phone' ? 'Tap the microphone to dictate, hold it to record audio; the pen writes.' : 'Tap the microphone to record (the text follows after the stop), hold it to dictate; the pen writes.') + ' Everything is stored encrypted on this phone.') + '</div>';
     return;
   }
   let html = '', day = '';
@@ -59,7 +59,7 @@ $('list').addEventListener('contextmenu', ev => { if (ev.target.closest('.card')
 function entryMenu(e) {
   if (e.state === 'rec' && recording) return;
   const btns = [{ label: 'Open', fn: () => openEntry(e) }];
-  if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) }, { label: 'Open in Claude', fn: () => openInClaude(e) });
+  if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) }, { label: 'Open in Claude', now: true, fn: () => openInClaude(e) });
   btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) }, { label: 'Cancel', cls: 'quiet' });
   popup(entryLabel(e), fmtDay(e.created) + ' · ' + fmtTime(e.created) + (e.segs && e.segs.length ? ' · ' + fmtDur(entryDur(e)) : ''), btns);
 }
@@ -80,9 +80,10 @@ async function newEntry(opts) {
 $('noteBtn').addEventListener('click', () => newEntry());
 // the microphone: a tap dictates into a new entry; holding it (600 ms) starts a long audio recording
 let micHold = null, micHeld = false;
-$('recBtn').addEventListener('pointerdown', ev => { if (ev.button > 0) return; micHeld = false; clearTimeout(micHold); micHold = setTimeout(() => { micHold = null; micHeld = true; if (navigator.vibrate) { try { navigator.vibrate(20); } catch (e) {} } startRecording(); }, 600); });
+const micTapRecords = () => settings.engine !== 'phone';      // with a key or the cloud the main gesture is the recording: audio kept, text after the stop
+$('recBtn').addEventListener('pointerdown', ev => { if (ev.button > 0) return; micHeld = false; clearTimeout(micHold); micHold = setTimeout(() => { micHold = null; micHeld = true; if (navigator.vibrate) { try { navigator.vibrate(20); } catch (e) {} } if (micTapRecords()) newEntry({ dictate: true }); else startRecording(); }, 600); });
 for (const t of ['pointerup', 'pointercancel', 'pointerleave']) $('recBtn').addEventListener(t, () => { clearTimeout(micHold); micHold = null; });
-$('recBtn').addEventListener('click', () => { if (micHeld) { micHeld = false; return; } newEntry({ dictate: true }); });
+$('recBtn').addEventListener('click', () => { if (micHeld) { micHeld = false; return; } if (micTapRecords()) startRecording(); else newEntry({ dictate: true }); });
 $('recBtn').addEventListener('contextmenu', ev => ev.preventDefault());
 
 // ---------- entry view ----------
@@ -201,7 +202,7 @@ function openInClaude(e) {
   const text = entryAsText(e);
   const q = 'Here is an entry from my journal. Hold it for now; I will tell you what I want to do with it.\n\n' + text;
   const url = 'https://claude.ai/new?q=' + encodeURIComponent(q.slice(0, 6000));
-  const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url;
+  const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();      // a real link click inside the tap: opens the Claude app where it is installed, else claude.ai
 }
 function renderTxState() {
   const e = curEntry, el = $('txState'), bt = $('txBtns'); if (!e || !el) return;
@@ -232,7 +233,7 @@ $('entryMore').addEventListener('click', () => {
   commitTitle(); commitText();
   const btns = [];
   if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) });
-  if (entryText(e)) btns.push({ label: 'Open in Claude', fn: () => openInClaude(e) });
+  if (entryText(e)) btns.push({ label: 'Open in Claude', now: true, fn: () => openInClaude(e) });
   if (e.segs && e.segs.length) btns.push({ label: 'Share the audio', fn: () => shareAudio(e) });
   if (e.segs && e.segs.some(g => g.st === 'done')) btns.push({ label: 'Transcribe again', fn: () => popup('Transcribe again?', 'The recording is transcribed anew and the new text is added below what is there.', [{ label: 'Transcribe again', cls: 'primary', fn: () => retranscribe(e) }, { label: 'Cancel', cls: 'quiet' }]) });
   btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) });

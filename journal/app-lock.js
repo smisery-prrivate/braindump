@@ -142,7 +142,7 @@ function renderSheet() {
     '<div class="hint">Shorter parts mean less is lost if the phone dies, and the transcript arrives sooner; a change applies to the next recording.</div>' +
     '<h2>Backup</h2><div id="backupBox"></div>' +
     '<h2>App</h2><div id="installBox"></div>' +
-    '<div class="hint">Tap the microphone to dictate an entry, hold it for a long audio recording. Everything is encrypted on this device and encrypted again before it is uploaded. Audio leaves the device only for transcription, and only when you ask for it. No cookies, no trackers, no third-party scripts.</div>' +
+    '<div class="hint">' + (settings.engine === 'phone' ? 'Tap the microphone to dictate, hold it to record audio.' : 'Tap the microphone to record (audio kept, text after the stop), hold it to dictate.') + ' Everything is encrypted on this device and encrypted again before it is uploaded. Audio leaves the device only for transcription, and only when you ask for it. No cookies, no trackers, no third-party scripts.</div>' +
     '<div class="version">Journal · ' + VERSION + '</div>';
   renderTxBox(); renderSyncBox(); renderLockBox(); renderBackupBox(); renderInstallBox();
   $('setSeg').value = String(settings.segMin); $('setSeg').addEventListener('change', e => { settings.segMin = +e.target.value; saveSettings(); });
@@ -151,7 +151,7 @@ function renderTxBox() {
   const box = $('txBox'); if (!box) return;
   const eng = settings.engine;
   let engBox = '';
-  if (eng === 'phone') engBox = '<div class="hint">The phone\'s own speech recognition (Google on Android, Apple on iPhone) listens live while you record a memo and while you dictate a note. Free, no key, no account. That audio goes to Google or Apple for recognition; the recording itself stays encrypted here. It cannot transcribe stored audio afterwards; for that, switch to a key or the cloud function.</div>';
+  if (eng === 'phone') engBox = '<div class="hint">The phone\'s own speech recognition (Google on Android, Apple on iPhone). Free, no key, no account; that audio goes to Google or Apple. Its limits: it stops at every pause (the app starts it again), it cannot listen while the phone records audio, and it cannot read a stored recording. For long memos with pauses, audio kept and text after the stop, choose a key below.</div>';
   else if (eng === 'key') engBox = stt ? '<div class="statecard"><div class="t">✓ ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Memos and dictated notes go straight from this phone to the service and the text comes back. The service may keep audio for a while under its own terms.</div></div><button class="btn quiet" id="sttOff">Remove the key</button>'
     : '<p>Mistral (Paris) transcribes German and English for a few cents per hour: sign up at console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create. (Mistral\'s free Experiment plan lets them train on your audio, so take the paid one for a journal.) The key is stored encrypted on this device and used only from here.</p>' +
       '<select id="sttProv">' + Object.keys(STT).map(k => '<option value="' + k + '">' + esc(STT[k].name) + '</option>').join('') + '</select>' +

@@ -32,8 +32,9 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   default), always, or never (audio only).
 - **One text per entry.** An entry is one text, whatever its source: typed, dictated, or
   transcribed from a long recording (each segment's transcript is appended to it once). Two
-  buttons on the home screen: the pen writes a new entry, the microphone dictates one (the text
-  appears live); holding the microphone starts a long audio recording instead. The entry view
+  buttons on the home screen: the pen writes a new entry; the microphone follows the engine:
+  with the phone engine a tap dictates (text live) and a hold records audio, with a key or the
+  cloud a tap records (audio kept, text after the stop) and a hold dictates. The entry view
   has a Dictate button that follows the engine: with the phone engine the text appears live
   (Chrome stops after pauses; the app starts it again while dictation is on); with a key or the
   cloud a short clip is recorded and sent, and the text is appended. An entry left empty is not
@@ -200,6 +201,9 @@ See `README.md`.
 
 ## History
 
+- v6 to v10 (2026-10-27): Android's speech recognition tamed (repeated and growing results folded
+  on their overlap, sessions restarted at once), the microphone follows the engine, "Open in
+  Claude" runs inside the tap.
 - v5 (2026-10-27): one text per entry; pen writes, microphone dictates, holding it records audio.
 - v4 (2026-10-27): one engine setting for memos and notes: phone (live while recording), own
   key, or cloud function.

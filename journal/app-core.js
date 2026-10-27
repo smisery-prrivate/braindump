@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v9';
+const VERSION = 'v10';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -235,7 +235,8 @@ function popup(title, text, buttons, opts) {
   box.innerHTML = '<h3>' + esc(title) + '</h3>' + (text ? '<p>' + esc(text) + '</p>' : '');
   for (const b of buttons) {
     const el = document.createElement('button'); el.textContent = b.label; el.className = b.cls || '';
-    el.addEventListener('click', () => { if (popupState) popupState.after = (locked && !popupState.lockOk) ? null : (b.fn || null); back(); });
+    // b.now: the action runs inside the tap itself (a window the browser would otherwise block), then the popup closes
+    el.addEventListener('click', () => { if (b.now && b.fn && !(locked && !popupState.lockOk)) { try { b.fn(); } catch (e) {} if (popupState) popupState.after = null; back(); return; } if (popupState) popupState.after = (locked && !popupState.lockOk) ? null : (b.fn || null); back(); });
     box.appendChild(el);
   }
   popupState = { after: null, lockOk }; push('popup');
