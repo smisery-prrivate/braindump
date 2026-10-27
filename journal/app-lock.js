@@ -10,6 +10,7 @@ const workInFlight = () => recording || recFinishing || segWrites > 0 || persist
 
 // ---------- lock screen ----------
 function showLock(soft) {
+  if (dictOn) stopDictation();
   let n = 0; for (let i = stack.length - 1; i > 0 && (stack[i] === 'popup' || stack[i] === 'sheet'); i--) n++;
   if (n) { if (popupState) popupState.after = null; history.go(-n); }
   locked = true; softLock = !!soft;

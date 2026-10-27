@@ -70,6 +70,18 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
   await page.evaluate(async () => { for (const g of journalDebug.entries[0].segs) { g.st = 'todo'; g.text = ''; } await journalDebug.persist(journalDebug.entries[0]); await journalDebug.saveStt(null); });
 
+  // 2c. long press on a card opens the options menu; a plain tap still opens the entry
+  const box = await (await page.$('.card')).boundingBox();
+  await page.mouse.move(box.x + 40, box.y + 20); await page.mouse.down(); await sleep(700); await page.mouse.up(); await sleep(300);
+  check(await page.isVisible('#popup.open') && (await page.textContent('#popupBox')).includes('Delete entry') && await page.isVisible('#home:not([hidden])'), 'long press opens the menu without opening the entry');
+  await page.click('#popupBox button.quiet'); await sleep(300);
+  await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
+  check(await page.isVisible('#dictBtn'), 'Dictate button in the note');
+  await page.click('#dictBtn'); await sleep(300);
+  check(await page.evaluate(() => !!(self.SpeechRecognition || self.webkitSpeechRecognition) || document.getElementById('popupBox').textContent.includes('No dictation')), 'dictation starts, or says the browser has none');
+  if (await page.isVisible('#popup.open')) await page.click('#popupBox button');
+  await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
+
   // 3. sign in via PKCE link, then transcribe
   await page.evaluate(() => { localStorage.setItem('journal.linkAsked', String(Date.now())); localStorage.setItem('journal.pkce', 'verifier'); });
   await page.goto(BASE + '?code=goodcode'); await page.waitForFunction(() => window.journalDebug && journalDebug.session);

@@ -26,6 +26,13 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   "Transcribe again" starts over. A refused segment is retried after a growing pause (1, 4, 16 …
   minutes, an hour at most) and the entry says why meanwhile. Setting: ask after each memo (the
   default), always, or never (audio only).
+- **Dictate into a note.** The note field has a Dictate button that uses the phone's own
+  speech recognition (Web Speech API: Google on Android Chrome, Apple on iPhone): free, instant,
+  no key and no second app, but that audio goes to those providers and Chrome stops after
+  pauses (the app starts it again while dictation is on). The big microphone stays the private
+  way for long memos. "Open in Claude" in the entry menu hands the entry's text to the Claude app
+  or claude.ai as the first message of a new chat.
+- **Long press** on an entry in the list: a menu with Open, Share as text, Open in Claude, Delete.
 - **Journal.** Entries by day, newest first, with time, title, the first lines, length and state.
   Search over titles, notes and transcripts. Each entry has a player over all its segments (seek,
   1× to 2×), the transcript and a notes field. Typed notes without audio exist too (the pen).
@@ -186,6 +193,8 @@ See `README.md`.
 
 ## History
 
+- v3 (2026-10-27): dictation into the note with the phone's own speech recognition, "Open in
+  Claude", long-press menu on entries.
 - v2 (2026-10-26): transcription with the user's own key straight from the phone (Mistral,
   ElevenLabs, Deepgram, OpenAI), no cloud project needed.
 - v1 (2026-10-26): first version. Segmented, crash-safe, encrypted recorder; lock (PRF, gate,

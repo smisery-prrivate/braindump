@@ -37,12 +37,32 @@ function renderHome() {
   }
   list.innerHTML = html;
 }
+let holdTimer = null, holdCard = null, holdX = 0, holdY = 0, holdFired = false;
 $('list').addEventListener('click', ev => {
+  if (holdFired) { holdFired = false; ev.preventDefault(); return; }      // the tap that ends a long press opens nothing
   const c = ev.target.closest('.card'); if (!c || locked) return;
   const e = byId(c.dataset.id); if (!e) return;
   if (e.state === 'rec' && recording) { push('rec'); return; }
   openEntry(e);
 });
+// long press (500 ms, finger still) on an entry: the options menu
+function holdCancel() { clearTimeout(holdTimer); holdTimer = null; holdCard = null; }
+$('list').addEventListener('pointerdown', ev => {
+  const c = ev.target.closest('.card'); if (!c || locked || ev.button > 0) return;
+  holdCancel(); holdCard = c; holdX = ev.clientX; holdY = ev.clientY; holdFired = false;
+  holdTimer = setTimeout(() => { holdTimer = null; const e = byId(c.dataset.id); if (!e || !holdCard) return; holdFired = true; holdCard = null; if (navigator.vibrate) { try { navigator.vibrate(20); } catch (err) {} } entryMenu(e); }, 500);
+});
+$('list').addEventListener('pointermove', ev => { if (holdCard && (Math.abs(ev.clientX - holdX) > 10 || Math.abs(ev.clientY - holdY) > 10)) holdCancel(); });
+for (const t of ['pointerup', 'pointercancel', 'pointerleave']) $('list').addEventListener(t, () => { if (holdTimer) holdCancel(); });
+$('list').addEventListener('scroll', holdCancel);
+$('list').addEventListener('contextmenu', ev => { if (ev.target.closest('.card')) ev.preventDefault(); });
+function entryMenu(e) {
+  if (e.state === 'rec' && recording) return;
+  const btns = [{ label: 'Open', fn: () => openEntry(e) }];
+  if (entryText(e) || e.text) btns.push({ label: 'Share as text', fn: () => shareText(e) }, { label: 'Open in Claude', fn: () => openInClaude(e) });
+  btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) }, { label: 'Cancel', cls: 'quiet' });
+  popup(entryLabel(e), fmtDay(e.created) + ' · ' + fmtTime(e.created) + (e.segs && e.segs.length ? ' · ' + fmtDur(entryDur(e)) : ''), btns);
+}
 $('searchBox').addEventListener('input', ev => { searchQ = ev.target.value; renderHome(); });
 $('menuBtn').addEventListener('click', () => openSheet());
 
@@ -66,7 +86,7 @@ function openEntry(e, opts) {
   renderEntry();
   if (focusTextNext) setTimeout(() => { const t = $('noteText'); if (t) t.focus(); }, 60);
 }
-function leaveEntry() { commitTitle(); commitText(); stopPlayer(); curEntry = null; }
+function leaveEntry() { if (dictOn) stopDictation(); commitTitle(); commitText(); stopPlayer(); curEntry = null; }
 function renderEntry() {
   const e = curEntry; if (!e || current() !== 'entry') return;
   const ti = $('entryTitle'); if (document.activeElement !== ti) ti.value = e.title || '';
@@ -84,11 +104,58 @@ function renderEntry() {
     html += '<div class="txcard"><div class="t"><span>Transcript</span><span id="txBtns"></span></div><div class="st" id="txState"></div>' +
       '<textarea id="txText" placeholder="' + (s === 'done' ? '' : 'The transcript appears here.') + '" spellcheck="false">' + esc(entryText(e)) + '</textarea></div>';
   }
-  html += '<div class="txcard"><div class="t"><span>' + (segs.length ? 'Notes' : 'Note') + '</span></div><textarea id="noteText" placeholder="' + (segs.length ? 'Anything to add in writing…' : 'Write…') + '">' + esc(e.text || '') + '</textarea></div>';
+  html += '<div class="txcard"><div class="t"><span>' + (segs.length ? 'Notes' : 'Note') + '</span><button id="dictBtn" title="Dictate with the phone\'s speech recognition">' + (dictOn ? '■ Stop' : '🎙 Dictate') + '</button></div><textarea id="noteText" placeholder="' + (segs.length ? 'Anything to add in writing…' : 'Write, or tap Dictate…') + '">' + esc(e.text || '') + '</textarea></div>';
   body.innerHTML = html;
   renderTxState(); wirePlayer();
   const txEl = $('txText'); if (txEl) txEl.addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
   $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
+  $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : startDictation());
+}
+
+// ---------- dictation into the note, with the phone's own speech recognition ----------
+// Web Speech API: Google on Android Chrome, Apple on iPhone. Free, instant, no key, no second
+// app; but that audio goes to those providers, and Chrome ends after a pause, so it is started
+// again while dictation is on. The private way for long memos stays the big microphone.
+const SR = self.SpeechRecognition || self.webkitSpeechRecognition;
+let dictRec = null, dictOn = false, dictBase = '', dictFinal = '', dictEntry = null;
+function dictLang() { const l = settings.lang; return l === 'de' ? 'de-DE' : l === 'en' ? 'en-US' : (navigator.language && /^(de|en)/.test(navigator.language) ? navigator.language : 'de-DE'); }
+function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictBase + dictFinal + (interim || ''); nt.scrollTop = nt.scrollHeight; }
+function startDictation() {
+  const e = curEntry; if (!e || locked || passive || recording) return;
+  if (!SR) { popup('No dictation here', 'This browser has no built-in speech recognition. Use Chrome or Safari, or the keyboard\'s microphone key.', [{ label: 'OK', cls: 'primary' }]); return; }
+  commitText();
+  const cur = (e.text || '').replace(/\s+$/, '');
+  dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictEntry = e; dictOn = true;
+  const b = $('dictBtn'); if (b) b.textContent = '■ Stop';
+  const run = () => {
+    if (!dictOn || curEntry !== e) return;
+    const r = new SR(); dictRec = r;
+    r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+    r.onresult = ev => {
+      let interim = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) dictFinal += t.trim() + ' '; else interim += t; }
+      dictApply(interim);
+    };
+    r.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { stopDictation(); popup('Microphone', 'Journal has no permission to use the microphone for dictation. Allow it in the browser settings for this site.', [{ label: 'OK', cls: 'primary' }]); } };
+    r.onend = () => { if (dictRec !== r) return; dictRec = null; if (dictOn) setTimeout(run, 150); };
+    try { r.start(); } catch (err) { stopDictation(); }
+  };
+  run();
+}
+function stopDictation() {
+  if (!dictOn) return;
+  dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
+  const e = dictEntry; dictEntry = null;
+  if (e) { e.text = (dictBase + dictFinal).replace(/\s+$/, ''); if (curEntry === e) { dictApply(''); } persist(e); renderHome(); }
+  const b = $('dictBtn'); if (b) b.textContent = '🎙 Dictate';
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden && dictOn) stopDictation(); });
+// hand an entry to Claude: opens the Claude app (or claude.ai) with the entry as the first message
+function openInClaude(e) {
+  const text = entryAsText(e);
+  const q = 'Here is an entry from my journal. Hold it for now; I will tell you what I want to do with it.\n\n' + text;
+  const url = 'https://claude.ai/new?q=' + encodeURIComponent(q.slice(0, 6000));
+  const w = window.open(url, '_blank', 'noopener'); if (!w) location.href = url;
 }
 function renderTxState() {
   const e = curEntry, el = $('txState'), bt = $('txBtns'); if (!e || !el) return;
@@ -122,6 +189,7 @@ $('entryMore').addEventListener('click', () => {
   commitTitle(); commitText();
   const btns = [];
   if (entryText(e) || e.text) btns.push({ label: 'Share as text', fn: () => shareText(e) });
+  if (entryText(e) || e.text) btns.push({ label: 'Open in Claude', fn: () => openInClaude(e) });
   if (e.segs && e.segs.length) btns.push({ label: 'Share the audio', fn: () => shareAudio(e) });
   if (e.segs && e.segs.some(g => g.st === 'done')) btns.push({ label: 'Transcribe again', fn: () => popup('Transcribe again?', e.tEdited ? 'Your edits to the transcript are replaced by a fresh transcription.' : 'The transcript is made anew.', [{ label: 'Transcribe again', cls: 'primary', fn: () => retranscribe(e) }, { label: 'Cancel', cls: 'quiet' }]) });
   btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) });

@@ -17,6 +17,7 @@ const recElapsed = () => (recPaused ? recPausedAt : Date.now()) - recStartAt - r
 // ---------- start ----------
 async function startRecording() {
   if (recording || recFinishing || locked || passive || !Vault.isOpen()) return;
+  if (dictOn) stopDictation();
   if (!self.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { popup('No recorder', 'This browser cannot record audio. Use Chrome or Safari.', [{ label: 'OK', cls: 'primary' }]); return; }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: { ideal: 1 }, echoCancellation: false, noiseSuppression: true, autoGainControl: true } }); }
