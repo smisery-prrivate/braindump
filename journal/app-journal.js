@@ -158,6 +158,12 @@ async function newEntry(opts) {
   if (dictOn) stopDictation();
   const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], pics: [], state: 'done', dur: 0, deleted: false, tx: false, mime: '', merged: true, folder: curFolder || '' };
   entries.unshift(e);
+  if (opts && opts.keyboard) {
+    // the keyboard only comes up inside the tap itself: open and focus first, save right after
+    openEntry(e, { focusNow: true }); keyboardHint();
+    if (!(await persist(e))) { entries.splice(entries.indexOf(e), 1); if (curEntry === e) { curEntry = null; closeScreen('entry'); } renderHome(); return; }
+    renderHome(); return;
+  }
   if (!(await persist(e))) { entries.splice(entries.indexOf(e), 1); return; }
   openEntry(e, { focusText: !(opts && opts.dictate) });
   renderHome();
@@ -171,6 +177,7 @@ $('noteBtn').addEventListener('click', () => newEntry());
 $('recBtn').addEventListener('click', () => {
   if (settings.engine === 'claude') { openClaude(''); return; }
   if (settings.engine === 'phone') { newEntry({ dictate: true }); return; }
+  if (settings.engine === 'keyboard') { newEntry({ keyboard: true }); return; }
   startRecording();
 });
 
@@ -181,8 +188,11 @@ function openEntry(e, opts) {
   curEntry = e; focusTextNext = !!(opts && opts.focusText);
   if (current() !== 'entry') push('entry');
   renderEntry();
-  if (focusTextNext) setTimeout(() => { const t = $('noteText'); if (t) t.focus(); }, 60);
+  if (opts && opts.focusNow) { const t = $('noteText'); if (t) t.focus(); }
+  else if (focusTextNext) setTimeout(() => { const t = $('noteText'); if (t) t.focus(); }, 60);
 }
+// keyboard engine: the phone's keyboard does the listening (Gboard's microphone key), shown once per entry
+function keyboardHint() { const t = $('noteText'); if (t) t.placeholder = 'Tap the microphone key on the keyboard and talk…'; toast('Tap the microphone key on the keyboard'); }
 function leaveEntry() {
   closeLightbox(); if (dictOn) stopDictation(); commitTitle(); commitText(); stopPlayer();
   const e = curEntry; curEntry = null;
@@ -203,14 +213,14 @@ function renderEntry() {
       '<div class="speed">' + [1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
       '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
   }
-  html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate with the phone\'s speech recognition">' + (dictOn ? '■ Stop' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" placeholder="Write, or tap Dictate…">' + esc(e.text || '') + '</textarea></div>';
+  html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate">' + (dictOn ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" placeholder="Write, or tap Dictate…">' + esc(e.text || '') + '</textarea></div>';
   html += '<div class="txcard"><div class="t"><span>Photos</span></div><div class="pics" id="picGrid"></div></div>';
   body.innerHTML = html;
   renderPics();
   $('picGrid').addEventListener('click', ev => { const im = ev.target.closest('img'); if (im) { openLightbox(e, +im.dataset.i); return; } if (ev.target.closest('#addPic')) { $('picInput').value = ''; $('picInput').click(); } });
   renderRecBar(); renderTxState(); wirePlayer();
   $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
-  $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : startDictation());
+  $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : settings.engine === 'keyboard' ? (nt.focus(), keyboardHint()) : startDictation());
   $('claudeBtn').addEventListener('click', () => { commitTitle(); commitText(); if (!entryText(e)) { toast('Nothing to send yet.'); return; } openInClaude(e); });
 }
 

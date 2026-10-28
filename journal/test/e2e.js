@@ -131,6 +131,14 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check((await page.textContent('#list')).includes('📁 Reisen'), 'All shows the folder on the card');
   await page.evaluate(async () => { const e = journalDebug.entries[0]; e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); }); await sleep(300);
 
+  // 2e2. keyboard engine: the microphone opens the text window with the text field focused
+  await page.evaluate(() => { journalDebug.settings.engine = 'keyboard'; saveSettings(); });
+  await page.click('#recBtn'); await page.waitForSelector('#noteText'); await sleep(300);
+  check(await page.evaluate(() => document.activeElement && document.activeElement.id === 'noteText' && document.activeElement.placeholder.includes('keyboard')), 'keyboard engine: text window open, field focused, hint shown');
+  await page.fill('#noteText', 'Per Tastatur diktiert'); await sleep(1000); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await page.evaluate(() => journalDebug.entries.some(x => !x.deleted && x.text === 'Per Tastatur diktiert')), 'keyboard engine: entry kept with its text');
+  await page.evaluate(async () => { const e = journalDebug.entries.find(x => x.text === 'Per Tastatur diktiert'); e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); journalDebug.settings.engine = 'cloud'; saveSettings(); }); await sleep(300);
+
   // 2f. pick mode: two entries deleted at once, undo brings both back, then deleted for good
   await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Eins'); await sleep(1000); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
   await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Zwei'); await sleep(1000); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);

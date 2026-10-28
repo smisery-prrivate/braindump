@@ -7,7 +7,10 @@ Concept and security model: [CONCEPT.md](CONCEPT.md).
 Without any set-up the app runs fully on the device. Microphone: record, for as long as you
 like; the audio stays encrypted and playable under the text. Pen: write. Inside an entry,
 Dictate adds text through the phone's own speech recognition (free, but on most Android phones
-it cannot run while the phone records, and it stops at every pause). For recordings that become
+it cannot run while the phone records, and it stops at every pause with a tone). Smoother and
+also free: engine "Keyboard microphone" in Menu, Transcription. The microphone then opens the
+text window with the keyboard up, and Gboard's voice typing listens: on the phone itself on
+newer phones, through pauses, without tones. For recordings that become
 text, with pauses and all, add a key (below): two minutes. Folders sort entries; photos (camera
 or gallery, shrunk on the phone, location data dropped) sit in every entry, encrypted like
 everything else. "Select" in the header picks several entries to delete or move at once.

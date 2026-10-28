@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v14';
+const VERSION = 'v15';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -41,6 +41,7 @@ function writeGuard() {
 // 'off' (audio only). segMin: minutes per audio segment; every segment is a complete file of its
 // own, stored and encrypted the moment it ends, so a crash loses at most the open segment.
 // engine: 'phone' (the phone's own speech recognition, live while recording and while dictating),
+// 'keyboard' (the keyboard's own microphone key, Gboard: the text window opens with the keyboard up),
 // 'key' (the user's own key for a service), 'cloud' (the app's own cloud function, needs sign-in)
 let settings = { lockAfter: 60, transcribe: 'auto', segMin: 5, lang: 'auto', engine: 'phone' };
 const LOCK_AFTER = [5, 60, 300, 1800], SEG_MIN = [2, 5, 10], LANGS = ['auto', 'de', 'en'];
@@ -49,7 +50,7 @@ if (!LOCK_AFTER.includes(+settings.lockAfter)) settings.lockAfter = 60;      // 
 if (!SEG_MIN.includes(+settings.segMin)) settings.segMin = 5;
 if (!['ask', 'auto', 'off'].includes(settings.transcribe)) settings.transcribe = 'ask';
 if (!LANGS.includes(settings.lang)) settings.lang = 'auto';
-if (!['phone', 'claude', 'key', 'cloud'].includes(settings.engine)) settings.engine = 'phone';
+if (!['phone', 'keyboard', 'claude', 'key', 'cloud'].includes(settings.engine)) settings.engine = 'phone';
 const saveSettings = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch (e) {} };
 
 // ---------- IndexedDB ----------

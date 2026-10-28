@@ -34,7 +34,10 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   transcribed from a long recording (each segment's transcript is appended to it once). Two
   buttons on the home screen: the pen writes a new entry; the microphone opens the text window
   and the words flow in. What runs behind it follows the engine: the phone's recognition (text
-  live, no audio file), the Claude app (a new chat opens there, a workaround), or a key / the
+  live, no audio file), the keyboard (the text window opens with the keyboard up and the
+  keyboard's own microphone key does the listening: Gboard's voice typing runs on the phone on
+  newer phones, keeps going through pauses, no start and stop tones), the Claude app (a new
+  chat opens there, a workaround), or a key / the
   cloud (the audio records in the background with a small bar inside the entry, each part's text
   arrives below as it is done, the recording stays playable). There is no separate recording
   screen. Inside an entry, Dictate adds text with the phone's recognition and Claude hands the
@@ -219,6 +222,8 @@ See `README.md`.
 
 ## History
 
+- v15 (2026-10-28): keyboard engine: the microphone opens the text window with the keyboard up,
+  the keyboard's own voice typing (Gboard) does the listening.
 - v14 (2026-10-28): pick mode: delete or move several entries at once.
 - v13 (2026-10-28): folders and photos.
 - v12 (2026-10-27): no recording screen: the microphone opens the text window, the engine decides
