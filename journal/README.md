@@ -8,7 +8,9 @@ Without any set-up the app runs fully on the device. Microphone: record, for as 
 like; the audio stays encrypted and playable under the text. Pen: write. Inside an entry,
 Dictate adds text through the phone's own speech recognition (free, but on most Android phones
 it cannot run while the phone records, and it stops at every pause). For recordings that become
-text, with pauses and all, add a key (below): two minutes.
+text, with pauses and all, add a key (below): two minutes. Folders sort entries; photos (camera
+or gallery, shrunk on the phone, location data dropped) sit in every entry, encrypted like
+everything else.
 
 ## Transcription with a key (2 minutes)
 

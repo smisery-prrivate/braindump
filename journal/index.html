@@ -32,6 +32,22 @@
   .scroll { flex: 1; overflow-y: auto; padding: 4px 16px 170px; -webkit-overflow-scrolling: touch; }
   .empty { color: var(--muted); font-size: 15px; text-align: center; padding: 60px 20px; line-height: 1.5; }
   .empty b { color: var(--ink); display: block; font-size: 17px; margin-bottom: 6px; }
+  .chips { display: flex; gap: 6px; padding: 0 16px 8px; overflow-x: auto; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .chip.on { background: var(--accent); color: #fff; border-color: transparent; }
+  .chip.add { color: var(--accent); }
+  #entryFolderRow { padding-bottom: 8px; }
+  .card .th { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; flex: none; background: var(--line); }
+  .pics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pics img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--line); display: block; }
+  .pics .addpic { aspect-ratio: 1; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--accent); font-size: 28px; }
+  .lightbox { position: fixed; inset: 0; z-index: 48; background: rgba(0,0,0,.95); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
+  .lightbox img { max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 6px; }
+  .lbrow { display: flex; gap: 10px; }
+  .lbbtn { height: 44px; padding: 0 18px; border: none; border-radius: 14px; background: #fff; color: #000; font-weight: 600; }
+  .lbbtn.danger { background: var(--danger-bg); color: var(--danger); }
+  .popup .box .pinput { width: 100%; height: 48px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 0 12px; font-size: 16px; margin-bottom: 10px; }
   .searchrow { display: flex; gap: 8px; padding: 0 16px 8px; align-items: center; }
   .searchrow input { flex: 1; min-width: 0; height: 40px; border: 1px solid var(--line); border-radius: 20px; background: var(--card); padding: 0 14px; font-size: 15px; }
   .searchrow input:focus { outline: none; border-color: var(--accent); }
@@ -187,6 +203,7 @@
       <button id="menuBtn" class="pill">Menu</button>
     </header>
     <div id="syncline" class="subline"></div>
+    <div class="chips" id="folderRow"></div>
     <div class="searchrow" id="searchRow" hidden>
       <input id="searchBox" type="search" autocomplete="off" placeholder="Search your journal" aria-label="Search entries">
     </div>
@@ -211,6 +228,7 @@
       <button id="entryMore" class="icon" aria-label="More">⋯</button>
     </header>
     <div id="entryMeta" class="subline"></div>
+    <div class="subline" id="entryFolderRow"><button id="entryFolder" class="chip">📁 No folder</button></div>
     <div id="recBar" class="recbar" hidden>
       <div class="row"><span class="recdot" id="recDot"></span><span id="recState">Recording</span><span class="rectime" id="recTime">0:00</span><button id="recPause" class="pill">Pause</button><button id="recStop" class="pill stop">Stop</button></div>
       <div class="meter" id="meter"></div>
@@ -240,7 +258,9 @@
   <p>Only one can be active at a time, so that nothing gets overwritten.</p>
   <button id="awayBtn" class="btn">Use Journal here</button>
 </div>
+<div id="lightbox" class="lightbox" hidden><img id="lightImg" alt=""><div class="lbrow"><button id="lightDel" class="lbbtn danger">Delete photo</button><button id="lightClose" class="lbbtn">Close</button></div></div>
 <div id="toast"></div>
+<input type="file" id="picInput" accept="image/*" multiple hidden>
 <input type="file" id="importInput" accept=".journal,application/octet-stream" hidden>
 
 <script src="config.js"></script>

@@ -174,7 +174,7 @@ async function boot() {
   }
   if (state === 'locked') { showLock(false); await whenUnlocked(); if (!isOwner()) { instanceLost(); return; } }
   try { await loadEntries(); } catch (e) { fatal('The stored entries could not be read (' + errText(e) + ').'); return; }
-  await loadSession(); await loadStt();
+  await loadSession(); await loadStt(); await loadFolders();
   if (tokens) { try { linkMsg = await adoptLink(tokens); } catch (e) { linkMsg = 'The sign-in link could not be used.'; } }
   try { await recoverRecordings(); } catch (e) {}
   for (const e of entries) { if (e.broken || e.deleted) continue; let ch = false; for (const g of e.segs || []) if (g.st === 'busy') { g.st = 'todo'; ch = true; } if (ch) await persist(e, { quiet: true }); }      // a transcription cut off by a restart
@@ -199,7 +199,7 @@ async function housekeeping() {
   if (!Vault.isOpen() || locked || passive || recording) { setTimeout(housekeeping, 60000); return; }
   const idle = () => !locked && !passive && !recording && segWrites === 0;
   try {
-    const ref = new Set(); for (const e of live()) for (const g of e.segs || []) ref.add(g.id);
+    const ref = new Set(); for (const e of live()) for (const g of mediaOf(e)) ref.add(g.id);
     for (const id of await idb.keys('segs')) { if (!idle()) return; if (!ref.has(id) && !pendingDel.size) await idb.del('segs', id); }
     const old = Date.now() - 86400000;
     for (const k of await idb.keys('parts')) {

@@ -109,6 +109,28 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.click('#popupBox button.quiet'); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
   await page.evaluate(async () => { const e = journalDebug.entries[0]; e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); journalDebug.settings.engine = 'cloud'; saveSettings(); }); await sleep(300);
 
+  // 2e. folders and photos
+  await page.evaluate(async () => { folders.push('Reisen'); await saveFolders(); renderHome(); });
+  await page.click('#folderRow button[data-f="Reisen"]'); await sleep(200);
+  check((await page.textContent('#list')).includes('Nothing in this folder'), 'folder chip filters the list');
+  await page.click('#noteBtn'); await page.waitForSelector('#entry:not([hidden])');
+  check((await page.textContent('#entryFolder')).includes('Reisen'), 'a new entry lands in the open folder');
+  // a photo: a generated PNG through the file input, shrunk, sealed, with a thumbnail
+  const png = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 2400; c.height = 1800; const x = c.getContext('2d'); x.fillStyle = '#c33'; x.fillRect(0, 0, 2400, 1800); x.fillStyle = '#fff'; x.fillRect(600, 400, 1200, 1000); return c.toDataURL('image/png').split(',')[1]; });
+  await page.setInputFiles('#picInput', { name: 'test.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  await page.waitForFunction(() => journalDebug.entries[0].pics && journalDebug.entries[0].pics.length === 1, null, { timeout: 15000 }); await sleep(300);
+  const pic = await page.evaluate(async () => { const p = journalDebug.entries[0].pics[0]; const r = await journalDebug.idb.get('segs', p.id); const u = new Uint8Array(r.data); return { w: p.w, h: p.h, th: p.th.slice(0, 22), sealedLen: u.length, jpegHeader: u[12] === 0xff && u[13] === 0xd8, grid: document.querySelectorAll('#picGrid img').length }; });
+  console.log('photo', JSON.stringify(pic));
+  check(pic.w === 1600 && pic.h === 1200 && pic.th === 'data:image/jpeg;base64' && pic.sealedLen > 1000 && !pic.jpegHeader && pic.grid === 1, 'photo shrunk to 1600 px, thumbnail made, stored as ciphertext');
+  await page.click('#picGrid img'); await page.waitForSelector('#lightbox:not([hidden])'); await sleep(300);
+  check(await page.evaluate(() => document.getElementById('lightImg').naturalWidth === 1600), 'lightbox shows the decrypted photo');
+  await page.click('#lightClose'); await page.fill('#noteText', 'Foto-Eintrag'); await sleep(1000);
+  await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check((await page.$$('.card img.th')).length === 1 && (await page.textContent('#list')).includes('1 photo'), 'the list shows the thumbnail');
+  await page.click('#folderRow button[data-f=""]'); await sleep(200);
+  check((await page.textContent('#list')).includes('📁 Reisen'), 'All shows the folder on the card');
+  await page.evaluate(async () => { const e = journalDebug.entries[0]; e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); }); await sleep(300);
+
   // 3. sign in via PKCE link, then transcribe
   await page.evaluate(() => { localStorage.setItem('journal.linkAsked', String(Date.now())); localStorage.setItem('journal.pkce', 'verifier'); });
   await page.goto(BASE + '?code=goodcode'); await page.waitForFunction(() => window.journalDebug && journalDebug.session);

@@ -1,7 +1,7 @@
 'use strict';
 /* Journal screens: the list of days and entries, the entry view with its player and transcript,
    typed notes, search, delete with undo, sharing the text. */
-let curEntry = null, searchQ = '', pendingDel = new Set();
+let curEntry = null, searchQ = '', pendingDel = new Set(), curFolder = '';      // curFolder: '' = all entries
 const player = { e: null, i: -1, urls: new Map(), audio: null, rate: 1, seeking: false, loading: false, want: false };
 
 // ---------- home ----------
@@ -18,11 +18,13 @@ function snippet(e) {
 }
 function renderHome() {
   if (!entriesLoaded) return;
+  renderFolderRow();
   const list = $('list'), all = live().filter(e => !pendingDel.has(e.id)), q = searchQ.trim().toLowerCase();
   $('searchRow').hidden = all.length < 4 && !q;
-  const shown = all.filter(e => matches(e, q));
+  if (curFolder && !folderNames().includes(curFolder)) curFolder = '';
+  const shown = all.filter(e => (!curFolder || e.folder === curFolder) && matches(e, q));
   if (!shown.length) {
-    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : '<b>Your journal is empty.</b>Tap the microphone and talk; the words appear as you go. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
+    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : curFolder ? 'Nothing in this folder yet. New entries you make now land here.' : '<b>Your journal is empty.</b>Tap the microphone and talk; the words appear as you go. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
     return;
   }
   let html = '', day = '';
@@ -31,12 +33,59 @@ function renderHome() {
     if (d !== day) { day = d; html += '<div class="day">' + esc(fmtDay(e.created)) + '</div>'; }
     const s = txState(e), rec = e.state === 'rec';
     const st = rec ? '<span class="st rec">● recording</span>' : s === 'busy' ? '<span class="st busy">transcribing</span>' : s === 'fail' ? '<span class="st fail">transcription failed</span>' : s === 'todo' ? '<span class="st">not transcribed</span>' : '';
+    const pic = e.pics && e.pics.length ? e.pics[0] : null;
     html += '<div class="card" data-id="' + esc(e.id) + '"><div class="when">' + esc(fmtTime(e.created)) + '</div><div class="body"><div class="name">' + esc(entryLabel(e)) + '</div>' +
       (snippet(e) ? '<div class="snip">' + esc(snippet(e)) + '</div>' : '') +
-      '<div class="meta">' + (e.segs && e.segs.length ? esc(fmtDur(entryDur(e))) + ' · ' : '') + (e.cloud ? '☁ ' : '') + st + '</div></div></div>';
+      '<div class="meta">' + (e.segs && e.segs.length ? esc(fmtDur(entryDur(e))) + ' · ' : '') + (e.pics && e.pics.length ? e.pics.length + ' photo' + (e.pics.length > 1 ? 's' : '') + ' · ' : '') + (!curFolder && e.folder ? '📁 ' + esc(e.folder) + ' · ' : '') + (e.cloud ? '☁ ' : '') + st + '</div></div>' +
+      (pic && safeThumb(pic.th) ? '<img class="th" src="' + pic.th + '" alt="">' : '') + '</div>';
   }
   list.innerHTML = html;
 }
+// thumbnails are only ever accepted as a plain base64 image
+const safeThumb = t => typeof t === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(t) ? t : '';
+
+// ---------- folders ----------
+function renderFolderRow() {
+  const row = $('folderRow'); if (!row) return;
+  const names = folderNames();
+  row.hidden = !names.length && !live().length;
+  let html = '<button class="chip' + (!curFolder ? ' on' : '') + '" data-f="">All</button>';
+  for (const n of names) html += '<button class="chip' + (curFolder === n ? ' on' : '') + '" data-f="' + esc(n) + '">' + esc(n) + '</button>';
+  html += '<button class="chip add" data-add="1">+ Folder</button>';
+  row.innerHTML = html;
+}
+$('folderRow').addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if (!b || locked) return;
+  if (b.dataset.add) { newFolder(f => { curFolder = f; renderHome(); }); return; }
+  curFolder = b.dataset.f || ''; renderHome();
+});
+let chipHold = null;
+$('folderRow').addEventListener('pointerdown', ev => { const b = ev.target.closest('button'); clearTimeout(chipHold); if (!b || !b.dataset.f || locked) return; const name = b.dataset.f; chipHold = setTimeout(() => { chipHold = null; folderMenu(name); }, 500); });
+for (const t of ['pointerup', 'pointercancel', 'pointerleave', 'pointermove']) $('folderRow').addEventListener(t, ev => { if (t === 'pointermove' && !chipHold) return; if (t !== 'pointermove') clearTimeout(chipHold); });
+$('folderRow').addEventListener('contextmenu', ev => ev.preventDefault());
+function newFolder(then) {
+  popupInput('New folder', '', '', 'Name', 'Create', async name => {
+    if (!folderNames().includes(name)) { folders.push(name); await saveFolders().catch(err => toast('Could not save: ' + errText(err))); }
+    if (then) then(name); renderHome();
+  });
+}
+function folderMenu(name) {
+  const n = live().filter(e => e.folder === name).length;
+  popup('📁 ' + name, n + ' entr' + (n === 1 ? 'y' : 'ies'), [
+    { label: 'Rename', fn: () => popupInput('Rename folder', '', name, 'Name', 'Rename', async nn => { if (nn === name) return; for (const e of entries) if (e.folder === name && !e.deleted) { e.folder = nn; await persist(e); } folders = folders.map(f => f === name ? nn : f); if (!folders.includes(nn)) folders.push(nn); await saveFolders().catch(() => {}); if (curFolder === name) curFolder = nn; renderAll(); }) },
+    { label: 'Delete folder (entries stay)', cls: 'danger', fn: async () => { for (const e of entries) if (e.folder === name && !e.deleted) { e.folder = ''; await persist(e); } folders = folders.filter(f => f !== name); await saveFolders().catch(() => {}); if (curFolder === name) curFolder = ''; renderAll(); } },
+    { label: 'Cancel', cls: 'quiet' }]);
+}
+async function setFolder(e, name) { if ((e.folder || '') === (name || '')) return; e.folder = name || ''; await persist(e); renderAll(); }
+function pickFolder(e) {
+  const btns = folderNames().map(n => ({ label: (e.folder === n ? '✓ ' : '') + n, fn: () => setFolder(e, n) }));
+  btns.push({ label: '+ New folder', fn: () => newFolder(n => setFolder(e, n)) });
+  if (e.folder) btns.push({ label: 'No folder', cls: 'quiet', fn: () => setFolder(e, '') });
+  btns.push({ label: 'Cancel', cls: 'quiet' });
+  popup('Folder', '', btns);
+}
+$('entryFolder').addEventListener('click', () => { if (curEntry) pickFolder(curEntry); });
+
 let holdTimer = null, holdCard = null, holdX = 0, holdY = 0, holdFired = false;
 $('list').addEventListener('click', ev => {
   if (holdFired) { holdFired = false; ev.preventDefault(); return; }      // the tap that ends a long press opens nothing
@@ -70,7 +119,7 @@ $('menuBtn').addEventListener('click', () => openSheet());
 async function newEntry(opts) {
   if (locked || passive || !Vault.isOpen() || recording) return;
   if (dictOn) stopDictation();
-  const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], state: 'done', dur: 0, deleted: false, tx: false, mime: '', merged: true };
+  const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], pics: [], state: 'done', dur: 0, deleted: false, tx: false, mime: '', merged: true, folder: curFolder || '' };
   entries.unshift(e);
   if (!(await persist(e))) { entries.splice(entries.indexOf(e), 1); return; }
   openEntry(e, { focusText: !(opts && opts.dictate) });
@@ -98,15 +147,16 @@ function openEntry(e, opts) {
   if (focusTextNext) setTimeout(() => { const t = $('noteText'); if (t) t.focus(); }, 60);
 }
 function leaveEntry() {
-  if (dictOn) stopDictation(); commitTitle(); commitText(); stopPlayer();
+  closeLightbox(); if (dictOn) stopDictation(); commitTitle(); commitText(); stopPlayer();
   const e = curEntry; curEntry = null;
-  if (e && !e.deleted && !(e.text || '').trim() && !(e.title || '').trim() && !(e.segs && e.segs.length) && e.state !== 'rec') { e.deleted = true; e.del_at = Date.now(); persist(e); renderHome(); }      // an entry left empty is not kept
+  if (e && !e.deleted && !(e.text || '').trim() && !(e.title || '').trim() && !(e.segs && e.segs.length) && !(e.pics && e.pics.length) && e.state !== 'rec') { e.deleted = true; e.del_at = Date.now(); persist(e); renderHome(); }      // an entry left empty is not kept
 }
 function renderEntry() {
   const e = curEntry; if (!e || current() !== 'entry') return;
   const ti = $('entryTitle'); if (document.activeElement !== ti) ti.value = e.title || '';
   const segs = e.segs || [];
   $('entryMeta').textContent = fmtDay(e.created) + ' · ' + fmtTime(e.created) + (segs.length ? ' · ' + fmtDur(entryDur(e)) + ' · ' + fmtSize(segs.reduce((a, g) => a + (g.size || 0), 0)) : '') + (e.cloud ? ' · in the cloud' : '');
+  $('entryFolder').textContent = '📁 ' + (e.folder || 'No folder'); $('entryFolder').classList.toggle('on', !!e.folder);
   const body = $('entryBody'), nt = $('noteText');
   if (nt && document.activeElement === nt) { renderTxState(); return; }                               // never redraw under a moving cursor
   let html = '';
@@ -117,7 +167,10 @@ function renderEntry() {
       '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
   }
   html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate with the phone\'s speech recognition">' + (dictOn ? '■ Stop' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" placeholder="Write, or tap Dictate…">' + esc(e.text || '') + '</textarea></div>';
+  html += '<div class="txcard"><div class="t"><span>Photos</span></div><div class="pics" id="picGrid"></div></div>';
   body.innerHTML = html;
+  renderPics();
+  $('picGrid').addEventListener('click', ev => { const im = ev.target.closest('img'); if (im) { openLightbox(e, +im.dataset.i); return; } if (ev.target.closest('#addPic')) { $('picInput').value = ''; $('picInput').click(); } });
   renderRecBar(); renderTxState(); wirePlayer();
   $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
   $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : startDictation());
@@ -210,6 +263,11 @@ function openClaude(q) {
   const a = document.createElement('a'); a.href = web; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
 }
 function openInClaude(e) { openClaude('Here is an entry from my journal. Hold it for now; I will tell you what I want to do with it.\n\n' + entryAsText(e)); }
+// the photo grid alone, so a photo added while the text is being typed shows up without a redraw of the text
+function renderPics() {
+  const e = curEntry, grid = $('picGrid'); if (!e || !grid) return;
+  grid.innerHTML = (e.pics || []).map((p, i) => '<img data-i="' + i + '" src="' + (safeThumb(p.th) || '') + '" alt="">').join('') + '<button class="addpic" id="addPic" title="Add a photo">+</button>';
+}
 function renderTxState() {
   const e = curEntry, el = $('txState'), bt = $('txBtns'); if (!e || !el) return;
   const segs = e.segs || [], s = txState(e), done = segs.filter(g => g.st === 'done').length;
@@ -247,6 +305,47 @@ $('entryMore').addEventListener('click', () => {
   popup(entryLabel(e), '', btns);
 });
 
+// ---------- photos: shrunk on the device (no location data survives), stored sealed like audio ----------
+const PIC_MAX = 1600, THUMB = 160;
+function loadImage(file) { return new Promise((res, rej) => { const url = URL.createObjectURL(file), im = new Image(); im.onload = () => { URL.revokeObjectURL(url); res(im); }; im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('not an image')); }; im.src = url; }); }
+function drawScaled(im, max, q) {
+  const r = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight)), w = Math.max(1, Math.round(im.naturalWidth * r)), h = Math.max(1, Math.round(im.naturalHeight * r));
+  const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(im, 0, 0, w, h);
+  return new Promise(res => c.toBlob(b => res({ blob: b, w, h, canvas: c }), 'image/jpeg', q));
+}
+async function addPhotos(e, files) {
+  if (!e || e.deleted || locked) return;
+  let n = 0;
+  for (const f of files) {
+    try {
+      const im = await loadImage(f);
+      const big = await drawScaled(im, PIC_MAX, 0.85), th = await drawScaled(im, THUMB, 0.7);
+      const id = uid();
+      await segPut(id, big.blob, { entry: e.id, mime: 'image/jpeg', size: big.blob.size, w: big.w, h: big.h, pic: true });
+      e.pics = e.pics || []; e.pics.push({ id, mime: 'image/jpeg', size: big.blob.size, w: big.w, h: big.h, th: th.canvas.toDataURL('image/jpeg', 0.7), t: Date.now() });
+      n++;
+    } catch (err) { toast('A photo could not be added: ' + errText(err)); }
+  }
+  if (n) { await persist(e); if (curEntry === e) renderPics(); renderHome(); toast(n + ' photo' + (n > 1 ? 's' : '') + ' added'); }
+}
+$('picInput').addEventListener('change', ev => { const fs = Array.from(ev.target.files || []); if (fs.length && curEntry) addPhotos(curEntry, fs); });
+let lightUrl = '', lightPic = null, lightEntry = null;
+async function openLightbox(e, i) {
+  const p = e.pics && e.pics[i]; if (!p) return;
+  let blob = await segGet(p.id, p.mime);
+  if (!blob && typeof fetchSeg === 'function') blob = await fetchSeg(e, p);
+  if (!blob) { toast('This photo is not on this device.'); return; }
+  closeLightbox(); lightUrl = URL.createObjectURL(blob); lightPic = p; lightEntry = e;
+  $('lightImg').src = lightUrl; $('lightbox').hidden = false;
+}
+function closeLightbox() { $('lightbox').hidden = true; $('lightImg').removeAttribute('src'); if (lightUrl) URL.revokeObjectURL(lightUrl); lightUrl = ''; lightPic = null; lightEntry = null; }
+$('lightClose').addEventListener('click', closeLightbox);
+$('lightImg').addEventListener('click', closeLightbox);
+$('lightDel').addEventListener('click', () => {
+  const e = lightEntry, p = lightPic; closeLightbox(); if (!e || !p) return;
+  popup('Delete this photo?', 'This cannot be undone.', [{ label: 'Delete', cls: 'danger', fn: async () => { e.pics = (e.pics || []).filter(x => x.id !== p.id); await persist(e); idb.del('segs', p.id).catch(() => {}); if (curEntry === e) renderPics(); renderHome(); } }, { label: 'Cancel', cls: 'quiet' }]);
+});
+
 // ---------- delete with undo; the records go only after the undo window ----------
 function deleteEntry(e) {
   if (!e || e.deleted) return;
@@ -260,7 +359,7 @@ function deleteEntry(e) {
 }
 // the audio of a deleted entry goes; the entry itself stays as a sealed delete marker for the cloud copy
 async function purgeEntryData(e) {
-  for (const g of e.segs || []) { await idb.del('segs', g.id).catch(() => {}); await partsDel(g.id).catch(() => {}); }
+  for (const g of mediaOf(e)) { await idb.del('segs', g.id).catch(() => {}); await partsDel(g.id).catch(() => {}); }
 }
 
 // ---------- player: one <audio>, the segments played one after the other ----------

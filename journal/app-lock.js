@@ -257,6 +257,7 @@ async function resealAll() {
       const sess = await idb.get('meta', 'session'); if (sess) { const nb = await Vault.reseal(sess.data, 'jn|session').catch(() => null); if (nb) await idb.put('meta', { id: 'session', data: nb }); }
       const cur = await idb.get('meta', 'cursor'); if (cur) { const nb = await Vault.reseal(cur.data, 'jn|cursor').catch(() => null); if (nb) await idb.put('meta', { id: 'cursor', data: nb }); }
       const sk = await idb.get('meta', 'stt'); if (sk) { const nb = await Vault.reseal(sk.data, 'jn|stt').catch(() => null); if (nb) await idb.put('meta', { id: 'stt', data: nb }); }
+      const fo = await idb.get('meta', 'folders'); if (fo) { const nb = await Vault.reseal(fo.data, 'jn|folders').catch(() => null); if (nb) await idb.put('meta', { id: 'folders', data: nb }); }
       if (session && !(await Vault.resealCloudKey(session.uid))) left = true;
       if (left || recWrites > 0 || recSeq !== seqAt || Vault.keyGen() !== gen) { if (resealAgain || Vault.keyGen() !== gen) continue; break; }
       await Vault.dropOldKeys(gen);

@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v12';
+const VERSION = 'v13';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -170,6 +170,8 @@ function joinOverlap(prev, next) {
   }
   return A.concat(B).join(' ');
 }
+// every stored file of an entry: audio segments and photos (same sealed store, same cloud objects)
+const mediaOf = e => (e.segs || []).concat(e.pics || []);
 // a segment's transcript arrived: into the text, once
 function mergeSeg(e, g) { if (!g.merged && g.text) { e.text = joinText(e.text, g.text); g.merged = true; } }
 const txState = e => {
@@ -180,6 +182,12 @@ const txState = e => {
   if (segs.every(g => g.st === 'off' || g.st === 'done')) return 'off';
   return 'todo';
 };
+
+// ---------- folders: a sealed list in the meta store; an entry carries its folder name ----------
+let folders = [];
+async function loadFolders() { folders = []; try { const r = await idb.get('meta', 'folders'); if (r) folders = (await Vault.openJson(r.data, 'jn|folders')).list || []; } catch (e) { folders = []; } }
+async function saveFolders() { await idb.put('meta', { id: 'folders', data: await Vault.sealJson({ list: folders }, 'jn|folders') }); tick(); }
+const folderNames = () => { const set = new Set(folders); for (const e of live()) if (e.folder) set.add(e.folder); return [...set]; };
 
 // ---------- screens and the back button ----------
 const BASE = ['home', 'entry'];
@@ -239,6 +247,21 @@ function popup(title, text, buttons, opts) {
   popupState = { after: null, lockOk }; push('popup');
 }
 $('popup').addEventListener('click', e => { if (e.target === $('popup')) back(); });
+// a popup with one text field: fn(value) runs after OK (empty values are ignored)
+function popupInput(title, text, value, placeholder, okLabel, fn) {
+  if (locked || passive) return;
+  if (stack[stack.length - 1] === 'popup') return;
+  const box = $('popupBox');
+  box.innerHTML = '<h3>' + esc(title) + '</h3>' + (text ? '<p>' + esc(text) + '</p>' : '');
+  const inp = document.createElement('input'); inp.type = 'text'; inp.value = value || ''; inp.placeholder = placeholder || ''; inp.autocomplete = 'off'; inp.className = 'pinput'; box.appendChild(inp);
+  const ok = document.createElement('button'); ok.textContent = okLabel || 'OK'; ok.className = 'primary';
+  ok.addEventListener('click', () => { const v = inp.value.trim(); if (popupState) popupState.after = v ? () => fn(v) : null; back(); });
+  const no = document.createElement('button'); no.textContent = 'Cancel'; no.className = 'quiet'; no.addEventListener('click', () => { if (popupState) popupState.after = null; back(); });
+  box.appendChild(ok); box.appendChild(no);
+  inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); ok.click(); } });
+  popupState = { after: null, lockOk: false }; push('popup');
+  setTimeout(() => inp.focus(), 80);
+}
 let toastTimer = null, toastAction = null, heldToast = ''; const toastQueue = [];
 function endToast(settle) { const t = $('toast'); clearTimeout(toastTimer); t.classList.remove('show'); const a = toastAction; toastAction = null; if (settle && a && a.expire) a.expire(); if (settle) flushToast(); }
 function flushToast() { if (toastQueue.length && !toastAction && !$('toast').classList.contains('show')) toast(toastQueue.shift()); }

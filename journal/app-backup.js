@@ -12,13 +12,13 @@ async function makeBackup(password) {
   const header = utf8(JSON.stringify({ v: 1, salt: Array.from(salt), iter, created: Date.now(), app: 'journal', n: list.length }));
   parts.push(u32(header.length), header);
   const segs = [];
-  for (const e of list) if (!e.deleted) for (const g of e.segs) segs.push({ id: g.id, entry: e.id, mime: g.mime, size: g.size, dur: g.dur, i: g.i });
+  for (const e of list) if (!e.deleted) for (const g of mediaOf(e)) segs.push({ id: g.id, entry: e.id, mime: g.mime, size: g.size, dur: g.dur, i: g.i });
   const have = [];
   for (const s of segs) { if (await segHas(s.id)) have.push(s); }
-  const manifest = await k.seal(utf8(JSON.stringify({ entries: list, segs: have.map(s => s.id) })), 'jn|bk|manifest');
+  const manifest = await k.seal(utf8(JSON.stringify({ entries: list, segs: have.map(s => s.id), folders })), 'jn|bk|manifest');
   parts.push(u32(manifest.byteLength), manifest);
   for (const s of have) {
-    const e = byId(s.entry), g = e && e.segs.find(x => x.id === s.id);
+    const e = byId(s.entry), g = e && mediaOf(e).find(x => x.id === s.id);
     const blob = await segGet(s.id, s.mime); if (!blob) continue;
     const sealed = await k.seal(await blob.arrayBuffer(), 'jn|bk|seg|' + s.id);
     parts.push(u32(sealed.byteLength), sealed);
@@ -41,7 +41,7 @@ async function readBackup(file, password, progress) {
   for (const m of manifest.entries || []) {
     if (!m || typeof m.id !== 'string') continue;
     const local = byId(m.id);
-    if (!local) { if (m.deleted) continue; const e = Object.assign({ segs: [] }, m, { cloud: false, srv: 0, pushed_at: 0, up: {}, broken: false }); mergeText(e); entries.push(e); for (const g of e.segs) wanted.set(g.id, e); added++; await persist(e, { quiet: true }); continue; }
+    if (!local) { if (m.deleted) continue; const e = Object.assign({ segs: [] }, m, { cloud: false, srv: 0, pushed_at: 0, up: {}, broken: false }); mergeText(e); entries.push(e); for (const g of mediaOf(e)) wanted.set(g.id, e); added++; await persist(e, { quiet: true }); continue; }
     if ((m.updated_at || 0) > (local.updated_at || 0)) {
       if (m.deleted) { if (!local.deleted) { local.deleted = true; local.del_at = m.del_at || Date.now(); purgeEntryData(local).catch(() => {}); } local.updated_at = m.updated_at; }
       else { Object.assign(local, m, { pushed_at: 0, up: local.up || {} }); mergeText(local); for (const g of local.segs) wanted.set(g.id, local); }
@@ -49,14 +49,16 @@ async function readBackup(file, password, progress) {
     } else if (!local.deleted) for (const g of local.segs) wanted.set(g.id, local);
   }
   entries.sort((a, b) => (b.created || 0) - (a.created || 0));
+  for (const f of manifest.folders || []) if (typeof f === 'string' && f && !folders.includes(f)) folders.push(f);
+  if ((manifest.folders || []).length) await saveFolders().catch(() => {});
   const ids = manifest.segs || []; let i = 0;
   for (const id of ids) {
     i++; if (progress) progress(i, ids.length);
     const buf = await readFrame();
     const e = wanted.get(id); if (!e || await segHas(id)) continue;
-    const g = e.segs.find(x => x.id === id); if (!g) continue;
+    const g = mediaOf(e).find(x => x.id === id); if (!g) continue;
     let plain; try { plain = await k.open(buf, 'jn|bk|seg|' + id); } catch (err) { continue; }
-    await segPut(id, new Blob([plain], { type: g.mime }), { entry: e.id, mime: g.mime, size: g.size, dur: g.dur, i: g.i });
+    await segPut(id, new Blob([plain], { type: g.mime }), { entry: e.id, mime: g.mime, size: g.size, dur: g.dur, i: g.i, pic: g.dur == null });
     audio++;
   }
   return { added, updated, audio };

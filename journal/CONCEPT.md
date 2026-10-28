@@ -45,6 +45,16 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   kept. "Open in Claude" in the entry menu hands the entry's text to the Claude app or claude.ai
   as the first message of a new chat.
 - **Long press** on an entry in the list: a menu with Open, Share as text, Open in Claude, Delete.
+- **Folders.** Chips above the list: All, every folder, "+ Folder". A chip filters the list and
+  new entries made while it is open land in that folder. Long press on a chip renames or deletes
+  the folder (its entries stay, without a folder). In the entry, the folder chip under the date
+  moves the entry. The folder list is sealed in the `meta` store (`jn|folders`), the folder name
+  travels inside the sealed entry.
+- **Photos.** Every entry has a photo grid: "+" takes one from the camera or the gallery. The
+  photo is shrunk on the phone to at most 1600 px as JPEG, which also drops all camera metadata
+  (location included), stored sealed like an audio segment, with a 160 px thumbnail inside the
+  entry record for the list and the grid. A tap shows the photo full size (decrypted into memory
+  only), with Delete. Photos travel in the backup file and in the cloud copy like segments.
 - **Journal.** Entries by day, newest first, with time, title, the first lines, length and state.
   Search over titles, notes and transcripts. Each entry has a player over all its segments (seek,
   1× to 2×), the transcript and a notes field. Typed notes without audio exist too (the pen).
@@ -146,8 +156,8 @@ The script files share one scope and load in the order above. There is no build 
 
 ## Data model
 
-An entry: `{ id, created, updated_at, title, text, lang, mime, segs, state, dur, deleted,
-del_at, tx, merged }` (`transcript` and `tEdited` are folded into `text` by `mergeText` since v5) plus local marks (`cloud`, `srv`, `pushed_at`, `up`, `purged`). A
+An entry: `{ id, created, updated_at, title, text, lang, mime, segs, pics, folder, state, dur,
+deleted, del_at, tx, merged }` (a photo: `{ id, mime, size, w, h, th, t }`) (`transcript` and `tEdited` are folded into `text` by `mergeText` since v5) plus local marks (`cloud`, `srv`, `pushed_at`, `up`, `purged`). A
 segment: `{ id, i, dur, mime, size, text, st, lang }` with `st` one of `todo`, `busy`, `done`,
 `fail`, `off`. The transcript shown is the edited text when `tEdited`, else the segment texts
 joined. Timestamps are milliseconds. Everything is stored in IndexedDB `journal`, stores
@@ -205,6 +215,7 @@ See `README.md`.
 
 ## History
 
+- v13 (2026-10-28): folders and photos.
 - v12 (2026-10-27): no recording screen: the microphone opens the text window, the engine decides
   what runs behind it; Claude engine; interim words overlaid, tolerant overlap.
 - v11 (2026-10-27): one gesture: the microphone records, always; Claude button in the entry.

@@ -310,7 +310,8 @@ function scheduleSync() { if (!SYNC || !session || passive) return; clearTimeout
 function abortSync() { if (syncCtl) syncCtl.abort(); }
 function syncRetry() { upFail.clear(); if (syncState === 'error') setSyncState(''); syncNow(); }
 const objName = (u, segId) => u + '/' + segId;
-const cloudFields = e => ({ id: e.id, created: e.created, updated_at: e.updated_at, title: e.title || '', text: e.text || '', transcript: e.transcript || '', tEdited: !!e.tEdited, lang: e.lang || 'auto', mime: e.mime || '',
+const cloudFields = e => ({ id: e.id, created: e.created, updated_at: e.updated_at, title: e.title || '', text: e.text || '', transcript: e.transcript || '', tEdited: !!e.tEdited, lang: e.lang || 'auto', mime: e.mime || '', folder: e.folder || '',
+  pics: (e.pics || []).map(p => ({ id: p.id, mime: p.mime, size: p.size, w: p.w, h: p.h, th: p.th, t: p.t })),
   segs: (e.segs || []).map(g => ({ id: g.id, i: g.i, dur: g.dur, mime: g.mime, size: g.size, text: g.text || '', st: g.st === 'done' ? 'done' : 'todo', lang: g.lang || '', merged: !!g.merged, live: !!g.live })), state: 'done', dur: e.dur || 0, deleted: !!e.deleted, del_at: e.del_at || 0, tx: !!e.tx, merged: !!e.merged });
 const sealedMeta = e => Vault.csealJson(e.deleted ? { id: e.id, deleted: true, updated_at: e.updated_at, del_at: e.del_at || 0 } : cloudFields(e), 'jn|entry|' + e.id);
 async function applyRow(row) {
@@ -320,7 +321,7 @@ async function applyRow(row) {
   if (!local) {
     if (m.deleted) return 'ok';
     const e = Object.assign({ segs: [] }, m, { cloud: true, srv: row.synced_at, pushed_at: m.updated_at, up: {}, broken: false });
-    for (const g of e.segs) e.up[g.id] = true;
+    for (const g of mediaOf(e)) e.up[g.id] = true;
     mergeText(e);
     entries.push(e); entries.sort((a, b) => (b.created || 0) - (a.created || 0));
     await persist(e, { quiet: true }); return 'ok';
@@ -329,15 +330,15 @@ async function applyRow(row) {
     if (curEntry === local && current() === 'entry') { commitTitle(); commitText(); if (local.updated_at >= m.updated_at) { local.srv = row.synced_at; await persist(local, { quiet: true }); return 'ok'; } }
     if (m.deleted) { const was = local.deleted; Object.assign(local, { deleted: true, del_at: m.del_at || Date.now(), updated_at: m.updated_at, srv: row.synced_at, pushed_at: m.updated_at }); if (!was) { if (curEntry === local) { stopPlayer(); closeScreen('entry'); toast('This entry was deleted on another device.'); } purgeEntryData(local).catch(() => {}); } }
     else {
-      const up = local.up || {}; for (const g of m.segs || []) up[g.id] = true;
-      for (const g of local.segs || []) if (!(m.segs || []).some(x => x.id === g.id)) { idb.del('segs', g.id).catch(() => {}); }
+      const up = local.up || {}; for (const g of mediaOf(m)) up[g.id] = true;
+      for (const g of mediaOf(local)) if (!mediaOf(m).some(x => x.id === g.id)) { idb.del('segs', g.id).catch(() => {}); }
       Object.assign(local, m, { cloud: true, srv: row.synced_at, pushed_at: m.updated_at, up, broken: false });
       mergeText(local);
       if (curEntry === local) { stopPlayer(); renderEntry(); }
     }
     await persist(local, { quiet: true }); return 'ok';
   }
-  local.srv = row.synced_at; if (m.updated_at === local.updated_at) { local.pushed_at = local.updated_at; local.cloud = true; const up = local.up || {}; for (const g of m.segs || []) up[g.id] = true; local.up = up; }
+  local.srv = row.synced_at; if (m.updated_at === local.updated_at) { local.pushed_at = local.updated_at; local.cloud = true; const up = local.up || {}; for (const g of mediaOf(m)) up[g.id] = true; local.up = up; }
   await persist(local, { quiet: true }); return 'ok';
 }
 async function syncNow() {
@@ -369,10 +370,10 @@ async function syncNow() {
         const u = e.updated_at;
         if (!e.deleted) {
           e.up = e.up || {};
-          for (const g of e.segs) {
+          for (const g of mediaOf(e)) {
             if (e.up[g.id]) continue;
             const blob = await segGet(g.id, g.mime);
-            if (!blob) { if (e.cloud) { e.up[g.id] = true; continue; } throw new Error('the audio of part ' + (e.segs.indexOf(g) + 1) + ' is missing on this device'); }
+            if (!blob) { if (e.cloud) { e.up[g.id] = true; continue; } throw new Error((g.dur != null ? 'the audio of part ' + (e.segs.indexOf(g) + 1) : 'a photo') + ' is missing on this device'); }
             if (blob.size > MAX_SEG) throw new Error('a part is larger than 50 MB');
             const sealed = await Vault.cseal(await blob.arrayBuffer(), 'jn|seg|' + g.id);
             const r = await api('POST', '/storage/v1/object/jn/' + objName(uid, g.id), { headers: { 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' }, body: sealed });
@@ -386,8 +387,8 @@ async function syncNow() {
         const rows = await r.json(); const srv = rows && rows[0] ? +rows[0].synced_at : 0;
         if (e.updated_at === u) { e.pushed_at = u; e.cloud = true; if (srv) e.srv = srv; }      // the bookmark is not moved by a push: rows other devices wrote meanwhile must still be pulled
         upFail.delete(e.id);
-        if (e.deleted && !e.purged && e.segs && e.segs.length) {
-          const r2 = await api('DELETE', '/storage/v1/object/jn', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: e.segs.map(g => objName(uid, g.id)) }) });
+        if (e.deleted && !e.purged && mediaOf(e).length) {
+          const r2 = await api('DELETE', '/storage/v1/object/jn', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: mediaOf(e).map(g => objName(uid, g.id)) }) });
           if (r2.ok || r2.status === 404) e.purged = true;
         }
         await persist(e, { quiet: true });
@@ -398,9 +399,9 @@ async function syncNow() {
     }
     // delete markers whose objects are still owed
     for (const e of entries) {
-      if (!e.deleted || e.purged || !e.segs || !e.segs.length || (e.pushed_at || 0) < (e.updated_at || 0)) continue;
+      if (!e.deleted || e.purged || !mediaOf(e).length || (e.pushed_at || 0) < (e.updated_at || 0)) continue;
       if (!session || session.uid !== uid || locked || passive) return;
-      try { const r2 = await api('DELETE', '/storage/v1/object/jn', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: e.segs.map(g => objName(uid, g.id)) }) }); if (r2.ok || r2.status === 404) { e.purged = true; await persist(e, { quiet: true }); } } catch (err) {}
+      try { const r2 = await api('DELETE', '/storage/v1/object/jn', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: mediaOf(e).map(g => objName(uid, g.id)) }) }); if (r2.ok || r2.status === 404) { e.purged = true; await persist(e, { quiet: true }); } } catch (err) {}
     }
     await storeCursorNow();
     if (failed) { const first = [...upFail.values()][0]; setSyncState('error', failed + ' entr' + (failed > 1 ? 'ies' : 'y') + ' could not be uploaded' + (first && first.msg ? ': ' + first.msg : '')); }
@@ -420,7 +421,7 @@ async function fetchSeg(e, g) {
   if (!r.ok) return null;
   let plain; try { plain = await Vault.copen(await r.arrayBuffer(), 'jn|seg|' + g.id); } catch (err) { return null; }
   const blob = new Blob([plain], { type: g.mime });
-  try { await segPut(g.id, blob, { entry: e.id, mime: g.mime, size: blob.size, dur: g.dur, i: g.i }); } catch (err) {}
+  try { await segPut(g.id, blob, { entry: e.id, mime: g.mime, size: blob.size, dur: g.dur, i: g.i, pic: g.dur == null }); } catch (err) {}
   return blob;
 }
 
