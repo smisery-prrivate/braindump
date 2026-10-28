@@ -44,7 +44,11 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   cloud a short clip is recorded and sent, and the text is appended. An entry left empty is not
   kept. "Open in Claude" in the entry menu hands the entry's text to the Claude app or claude.ai
   as the first message of a new chat.
-- **Long press** on an entry in the list: a menu with Open, Share as text, Open in Claude, Delete.
+- **Long press** on an entry in the list: a menu with Open, Select more, Share as text, Open in
+  Claude, Delete.
+- **Several at once.** "Select" in the header (or "Select more" from the long-press menu) turns
+  the list into a pick list: a tap picks, the bar at the bottom deletes all picked entries (one
+  undo for the whole batch) or moves them to a folder.
 - **Folders.** Chips above the list: All, every folder, "+ Folder". A chip filters the list and
   new entries made while it is open land in that folder. Long press on a chip renames or deletes
   the folder (its entries stay, without a folder). In the entry, the folder chip under the date
@@ -215,6 +219,7 @@ See `README.md`.
 
 ## History
 
+- v14 (2026-10-28): pick mode: delete or move several entries at once.
 - v13 (2026-10-28): folders and photos.
 - v12 (2026-10-27): no recording screen: the microphone opens the text window, the engine decides
   what runs behind it; Claude engine; interim words overlaid, tolerant overlap.

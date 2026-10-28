@@ -131,6 +131,22 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check((await page.textContent('#list')).includes('📁 Reisen'), 'All shows the folder on the card');
   await page.evaluate(async () => { const e = journalDebug.entries[0]; e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); }); await sleep(300);
 
+  // 2f. pick mode: two entries deleted at once, undo brings both back, then deleted for good
+  await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Eins'); await sleep(1000); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
+  await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Zwei'); await sleep(1000); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  const liveBefore = await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length);
+  await page.click('#selectBtn'); await sleep(200);
+  check(await page.isVisible('#selDock') && (await page.$$('.card .tick')).length >= 2, 'pick mode shows ticks and the bar');
+  const cards = await page.$$('.card'); await cards[0].click(); await cards[1].click(); await sleep(200);
+  check((await page.textContent('#selDelete')).includes('(2)'), 'two picked');
+  await page.click('#selDelete'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await sleep(500);
+  check((await page.$$('.card')).length === liveBefore - 2 && await page.isVisible('#toast'), 'both gone from the list with an undo toast');
+  await page.click('#toast button'); await sleep(300);
+  check((await page.$$('.card')).length === liveBefore, 'undo brought both back');
+  await page.click('#selectBtn'); await sleep(200); const cards2 = await page.$$('.card'); await cards2[0].click(); await cards2[1].click();
+  await page.click('#selDelete'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await sleep(7000);
+  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === liveBefore - 2 && !(await page.isVisible('#selDock')), 'deleted for good after the undo window, pick mode closed');
+
   // 3. sign in via PKCE link, then transcribe
   await page.evaluate(() => { localStorage.setItem('journal.linkAsked', String(Date.now())); localStorage.setItem('journal.pkce', 'verifier'); });
   await page.goto(BASE + '?code=goodcode'); await page.waitForFunction(() => window.journalDebug && journalDebug.session);

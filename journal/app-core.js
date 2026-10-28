@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v13';
+const VERSION = 'v14';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;

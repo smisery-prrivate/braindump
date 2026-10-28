@@ -10,7 +10,7 @@ Dictate adds text through the phone's own speech recognition (free, but on most 
 it cannot run while the phone records, and it stops at every pause). For recordings that become
 text, with pauses and all, add a key (below): two minutes. Folders sort entries; photos (camera
 or gallery, shrunk on the phone, location data dropped) sit in every entry, encrypted like
-everything else.
+everything else. "Select" in the header picks several entries to delete or move at once.
 
 ## Transcription with a key (2 minutes)
 

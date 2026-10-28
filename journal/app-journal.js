@@ -2,6 +2,7 @@
 /* Journal screens: the list of days and entries, the entry view with its player and transcript,
    typed notes, search, delete with undo, sharing the text. */
 let curEntry = null, searchQ = '', pendingDel = new Set(), curFolder = '';      // curFolder: '' = all entries
+let selMode = false; const selIds = new Set();                                      // pick mode on the home list
 const player = { e: null, i: -1, urls: new Map(), audio: null, rate: 1, seeking: false, loading: false, want: false };
 
 // ---------- home ----------
@@ -25,7 +26,7 @@ function renderHome() {
   const shown = all.filter(e => (!curFolder || e.folder === curFolder) && matches(e, q));
   if (!shown.length) {
     list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : curFolder ? 'Nothing in this folder yet. New entries you make now land here.' : '<b>Your journal is empty.</b>Tap the microphone and talk; the words appear as you go. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
-    return;
+    renderSelDock(); return;
   }
   let html = '', day = '';
   for (const e of shown) {
@@ -34,12 +35,46 @@ function renderHome() {
     const s = txState(e), rec = e.state === 'rec';
     const st = rec ? '<span class="st rec">● recording</span>' : s === 'busy' ? '<span class="st busy">transcribing</span>' : s === 'fail' ? '<span class="st fail">transcription failed</span>' : s === 'todo' ? '<span class="st">not transcribed</span>' : '';
     const pic = e.pics && e.pics.length ? e.pics[0] : null;
-    html += '<div class="card" data-id="' + esc(e.id) + '"><div class="when">' + esc(fmtTime(e.created)) + '</div><div class="body"><div class="name">' + esc(entryLabel(e)) + '</div>' +
+    html += '<div class="card' + (selMode && selIds.has(e.id) ? ' sel' : '') + '" data-id="' + esc(e.id) + '">' + (selMode ? '<div class="tick"></div>' : '') + '<div class="when">' + esc(fmtTime(e.created)) + '</div><div class="body"><div class="name">' + esc(entryLabel(e)) + '</div>' +
       (snippet(e) ? '<div class="snip">' + esc(snippet(e)) + '</div>' : '') +
       '<div class="meta">' + (e.segs && e.segs.length ? esc(fmtDur(entryDur(e))) + ' · ' : '') + (e.pics && e.pics.length ? e.pics.length + ' photo' + (e.pics.length > 1 ? 's' : '') + ' · ' : '') + (!curFolder && e.folder ? '📁 ' + esc(e.folder) + ' · ' : '') + (e.cloud ? '☁ ' : '') + st + '</div></div>' +
       (pic && safeThumb(pic.th) ? '<img class="th" src="' + pic.th + '" alt="">' : '') + '</div>';
   }
   list.innerHTML = html;
+  renderSelDock();
+}
+// ---------- pick mode: several entries at once ----------
+function renderSelDock() {
+  $('selDock').hidden = !selMode; $('homeDock').hidden = selMode;
+  $('selectBtn').textContent = selMode ? 'Done' : 'Select'; $('selectBtn').classList.toggle('on', selMode);
+  if (selMode) { const n = selIds.size; $('selDelete').textContent = 'Delete' + (n ? ' (' + n + ')' : ''); $('selDelete').disabled = !n; $('selMove').disabled = !n; }
+}
+function startSelect(id) { selMode = true; selIds.clear(); if (id) selIds.add(id); renderHome(); }
+function endSelect() { selMode = false; selIds.clear(); renderHome(); }
+$('selectBtn').addEventListener('click', () => selMode ? endSelect() : startSelect());
+$('selCancel').addEventListener('click', endSelect);
+$('selDelete').addEventListener('click', () => {
+  const ids = [...selIds].filter(id => byId(id) && !byId(id).deleted); if (!ids.length) return;
+  popup('Delete ' + ids.length + ' entr' + (ids.length > 1 ? 'ies' : 'y') + '?', 'Text, audio and photos of these entries are deleted. You can undo for a few seconds.', [
+    { label: 'Delete', cls: 'danger', fn: () => { endSelect(); deleteMany(ids); } }, { label: 'Cancel', cls: 'quiet' }]);
+});
+$('selMove').addEventListener('click', () => {
+  const ids = [...selIds]; if (!ids.length) return;
+  const apply = async name => { for (const id of ids) { const e = byId(id); if (e && !e.deleted && (e.folder || '') !== (name || '')) { e.folder = name || ''; await persist(e); } } endSelect(); toast(name ? 'Moved to ' + name : 'Removed from folder'); };
+  const btns = folderNames().map(n => ({ label: n, fn: () => apply(n) }));
+  btns.push({ label: '+ New folder', fn: () => newFolder(n => apply(n)) }, { label: 'No folder', cls: 'quiet', fn: () => apply('') }, { label: 'Cancel', cls: 'quiet' });
+  popup('Move ' + ids.length + ' entr' + (ids.length > 1 ? 'ies' : 'y') + ' to', '', btns);
+});
+// several entries deleted at once, with one undo for the whole batch
+function deleteMany(ids) {
+  settleToast();
+  const list = ids.map(byId).filter(e => e && !e.deleted);
+  for (const e of list) pendingDel.add(e.id);
+  if (curEntry && list.includes(curEntry)) closeScreen('entry');
+  renderHome();
+  let undone = false;
+  const expire = async () => { if (undone) return; stopPlayer(); for (const e of list) { pendingDel.delete(e.id); e.deleted = true; e.del_at = Date.now(); if (await persist(e)) purgeEntryData(e).catch(() => {}); } renderHome(); };
+  toast(list.length + ' entr' + (list.length > 1 ? 'ies' : 'y') + ' deleted', { label: 'Undo', fn: () => { undone = true; for (const e of list) pendingDel.delete(e.id); renderHome(); }, expire });
 }
 // thumbnails are only ever accepted as a plain base64 image
 const safeThumb = t => typeof t === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(t) ? t : '';
@@ -91,6 +126,7 @@ $('list').addEventListener('click', ev => {
   if (holdFired) { holdFired = false; ev.preventDefault(); return; }      // the tap that ends a long press opens nothing
   const c = ev.target.closest('.card'); if (!c || locked) return;
   const e = byId(c.dataset.id); if (!e) return;
+  if (selMode) { if (selIds.has(e.id)) selIds.delete(e.id); else selIds.add(e.id); c.classList.toggle('sel', selIds.has(e.id)); renderSelDock(); return; }
   if (e.state === 'rec' && recording) { push('rec'); return; }
   openEntry(e);
 });
@@ -107,7 +143,8 @@ $('list').addEventListener('scroll', holdCancel);
 $('list').addEventListener('contextmenu', ev => { if (ev.target.closest('.card')) ev.preventDefault(); });
 function entryMenu(e) {
   if (e.state === 'rec' && recording) return;
-  const btns = [{ label: 'Open', fn: () => openEntry(e) }];
+  if (selMode) { if (!selIds.has(e.id)) { selIds.add(e.id); renderHome(); } return; }
+  const btns = [{ label: 'Open', fn: () => openEntry(e) }, { label: 'Select more…', fn: () => startSelect(e.id) }];
   if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) }, { label: 'Open in Claude', now: true, fn: () => openInClaude(e) });
   btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) }, { label: 'Cancel', cls: 'quiet' });
   popup(entryLabel(e), fmtDay(e.created) + ' · ' + fmtTime(e.created) + (e.segs && e.segs.length ? ' · ' + fmtDur(entryDur(e)) : ''), btns);

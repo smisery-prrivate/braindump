@@ -39,6 +39,12 @@
   .chip.add { color: var(--accent); }
   #entryFolderRow { padding-bottom: 8px; }
   .card .th { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; flex: none; background: var(--line); }
+  .card .tick { width: 26px; height: 26px; border-radius: 13px; border: 2px solid var(--line); flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 15px; font-weight: 700; align-self: center; }
+  .card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); background: var(--accent-bg); }
+  .card.sel .tick { background: var(--accent); border-color: var(--accent); }
+  .card.sel .tick::after { content: '✓'; }
+  #selDock { gap: 8px; }
+  #selDock .secondary { flex: 1; padding: 0 8px; font-size: 15px; }
   .pics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .pics img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--line); display: block; }
   .pics .addpic { aspect-ratio: 1; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--accent); font-size: 28px; }
@@ -200,6 +206,7 @@
   <div class="col">
     <header class="top">
       <div style="flex:1;min-width:0"><h1>Journal <span id="vtag" class="vtag"></span></h1></div>
+      <button id="selectBtn" class="pill">Select</button>
       <button id="menuBtn" class="pill">Menu</button>
     </header>
     <div id="syncline" class="subline"></div>
@@ -208,6 +215,11 @@
       <input id="searchBox" type="search" autocomplete="off" placeholder="Search your journal" aria-label="Search entries">
     </div>
     <div id="list" class="scroll"></div>
+  </div>
+  <div class="dock" id="selDock" hidden>
+    <button id="selDelete" class="secondary del">Delete</button>
+    <button id="selMove" class="secondary">Move to folder</button>
+    <button id="selCancel" class="secondary">Cancel</button>
   </div>
   <div class="dock" id="homeDock">
     <button id="noteBtn" class="fab small" aria-label="Write an entry" title="Write">
