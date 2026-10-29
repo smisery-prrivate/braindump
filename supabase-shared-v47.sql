@@ -52,7 +52,7 @@ declare v_code text; v_id uuid; v_now bigint := (extract(epoch from now()) * 100
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   loop
-    v_code := upper(substr(translate(encode(gen_random_bytes(6), 'base64'), '+/=0O1Il', 'ABCDEFGH'), 1, 6));
+    v_code := upper(substr(translate(md5(random()::text || clock_timestamp()::text), '0123456789abcdef', 'ABCDEFGHJKMNPQRS'), 1, 6));
     exit when not exists (select 1 from public.br_circles where code = v_code);
   end loop;
   insert into public.br_circles (name, code, created_by, created_at) values (coalesce(nullif(trim(p_name), ''), 'Shared'), v_code, auth.uid(), v_now) returning id into v_id;
