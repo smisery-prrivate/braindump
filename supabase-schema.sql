@@ -32,3 +32,6 @@ create index if not exists thoughts_user_updated
 
 -- v34 addendum: the vault (faded thoughts rest as a quiet list)
 alter table public.thoughts add column if not exists vault boolean not null default false;
+
+-- v45 addendum: a colour (category id) behind a thought
+alter table public.thoughts add column if not exists cat text;

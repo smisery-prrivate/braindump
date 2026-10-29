@@ -61,6 +61,60 @@
     box-shadow: 0 2px 8px rgba(30,41,59,0.05);
   }
   .inputrow:focus-within { border-color: var(--teal); }
+  /* sticky category: the dot left of the field shows what the next dump gets */
+  #catDot {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px dashed #cbd5e1;
+    background: transparent;
+    margin: 0 2px 11px 0;
+    padding: 0;
+    cursor: pointer;
+  }
+  #catDot.on { border: none; background: var(--cat); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat) 22%, transparent); }
+  .inputrow.cat { border-color: color-mix(in srgb, var(--cat) 55%, #e2e8f0); }
+  /* the colour stripe every categorised thought carries, wherever it shows up */
+  .card.cat, .arch.cat, .vaultrow.cat { border-left: 6px solid var(--cat) !important; }
+  .arch.cat:not(.light):not(.dark):not(.guest):not(.compass) { background: color-mix(in srgb, var(--cat) 6%, #fff); }
+  .archgroup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 14px 2px 6px;
+  }
+  .archgroup .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cat, #cbd5e1); }
+  .archgroup .n { font-weight: 400; }
+  #quickCats, #modalCats, #catRow {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  #quickCats { flex-basis: 100%; padding-top: 6px; border-top: 1px solid #f1f5f9; }
+  #modalCats { margin: 0 0 12px; }
+  #modalCats[hidden] { display: none; }
+  .cchip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 999px;
+    background: #fff;
+    padding: 5px 11px 5px 7px;
+    font-size: 13px;
+    color: #475569;
+    cursor: pointer;
+  }
+  .cchip .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--cat); }
+  .cchip.on { border-color: var(--cat); background: color-mix(in srgb, var(--cat) 12%, #fff); color: var(--ink); font-weight: 600; }
   #dumpInput {
     flex: 1;
     border: none;
@@ -127,6 +181,7 @@
     z-index: 6;
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     background: #fff;
     border: 1.5px solid #e2e8f0;
@@ -641,7 +696,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v44</div>
+        <div class="version">v45</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -671,10 +726,12 @@
         <button class="qbtn" id="qCompass"><span>🧭</span><small></small></button>
         <button class="qbtn" id="qFive"><span>✋</span><small></small></button>
         <button class="qbtn" id="qOver"><span>⏳</span><small></small></button>
+        <div id="quickCats"></div>
         <div id="quickTimerWrap"><div id="quickTimerBar"></div></div>
       </div>
       <div id="dumpFlash">Into the archive. Gone.</div>
       <div class="inputrow">
+        <button id="catDot" title="Category for the next thoughts"></button>
         <textarea id="dumpInput" rows="1" placeholder="What's on your mind?"></textarea>
         <button id="sendBtn" class="iconbtn" title="Send">➤</button>
       </div>
@@ -693,6 +750,7 @@
       <p id="modalText"></p>
       <textarea id="modalInput" rows="2" hidden></textarea>
       <div id="modalCompare" hidden></div>
+      <div id="modalCats" hidden></div>
       <button id="modalOk" class="bigbtn"></button>
       <button id="modalAlt" class="bigbtn altbtn" hidden></button>
       <button id="modalAlt2" class="bigbtn altbtn" hidden></button>
@@ -747,6 +805,10 @@
       <button id="syncSend">🔄 Enable sync</button>
       <button id="syncOff" hidden>Sign out</button>
     </div>
+    <div class="backuprow" id="catSettings">
+      <span>Categories · tap to rename</span>
+      <div id="catRow"></div>
+    </div>
     <div class="backuprow">
       <span id="backupHint"></span>
       <button id="backupBtn">💾 Save backup</button>
@@ -773,6 +835,51 @@
   const MAX_GUESTS = 5;
   const PASSWORD = '1234';
   const STORE_KEY = 'braindump.v1';
+  // ---------- categories (v45): a colour behind a thought, never a question before the dump ----------
+  const CAT_KEY = 'braindump.cats', STICKY_KEY = 'braindump.stickyCat';
+  const STICKY_MS = 2 * 3600000;   // a quiet two hours and the sticky colour lets go
+  const DEFAULT_CATS = [
+    { id: 'fam', name: 'Family', color: '#e05a8a' },
+    { id: 'inv', name: 'Invitris', color: '#2563eb' },
+    { id: 'me', name: 'Me', color: '#16a34a' }
+  ];
+  let cats;
+  try { cats = JSON.parse(localStorage.getItem(CAT_KEY) || 'null'); } catch (e) { cats = null; }
+  if (!Array.isArray(cats) || !cats.length) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
+  const saveCats = () => localStorage.setItem(CAT_KEY, JSON.stringify(cats));
+  const catOf = it => (it && it.cat) ? cats.find(c => c.id === it.cat) || null : null;
+  // sticky: the colour the next dumps get; a tap on a chip sets it, no chip = no colour
+  function stickyCat() {
+    let st = null;
+    try { st = JSON.parse(localStorage.getItem(STICKY_KEY) || 'null'); } catch (e) {}
+    if (!st || !cats.some(c => c.id === st.id) || Date.now() - st.at > STICKY_MS) return null;
+    return st.id;
+  }
+  function setSticky(id) {
+    if (id) localStorage.setItem(STICKY_KEY, JSON.stringify({ id, at: Date.now() }));
+    else localStorage.removeItem(STICKY_KEY);
+    renderCatDot();
+  }
+  function touchSticky() { const id = stickyCat(); if (id) setSticky(id); }
+  function paintCat(el, c) {
+    if (c) { el.classList.add('cat'); el.style.setProperty('--cat', c.color); }
+    else { el.classList.remove('cat'); el.style.removeProperty('--cat'); }
+  }
+  // a row of chips; onPick(cat|null) — tapping the active chip clears
+  function catChips(host, activeId, onPick) {
+    host.innerHTML = '';
+    for (const c of cats) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cchip' + (c.id === activeId ? ' on' : '');
+      b.style.setProperty('--cat', c.color);
+      const d = document.createElement('span'); d.className = 'dot';
+      b.append(d, document.createTextNode(c.name));
+      b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); onPick(c.id === activeId ? null : c); });
+      b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
+      host.appendChild(b);
+    }
+  }
 
   // ---------- state ----------
   // {id, text, created, priority: null|'light'|'dark', guest: null|timestamp, guestUsed: bool}
@@ -950,6 +1057,7 @@
     for (const it of cs) {
       const el = document.createElement('div');
       el.className = 'card compass';
+      paintCat(el, catOf(it));
       const txt = document.createElement('div');
       txt.className = 'txt';
       txt.textContent = it.text;
@@ -965,6 +1073,7 @@
     for (const it of five) {
       const el = document.createElement('div');
       el.className = 'card ' + it.priority;
+      paintCat(el, catOf(it));
       const txt = document.createElement('div');
       txt.className = 'txt';
       txt.textContent = it.text;
@@ -987,6 +1096,7 @@
     for (const it of gs) {
       const el = document.createElement('div');
       el.className = 'card guest';
+      paintCat(el, catOf(it));
       el.style.opacity = guestOpacity(it);
       const txt = document.createElement('div');
       txt.className = 'txt';
@@ -1003,6 +1113,26 @@
 
   const input = $('dumpInput');
   const sendBtn = $('sendBtn');
+  function renderCatDot() {
+    const c = cats.find(x => x.id === stickyCat()) || null;
+    const d = $('catDot'), row = d.parentElement;
+    d.classList.toggle('on', !!c);
+    row.classList.toggle('cat', !!c);
+    if (c) { d.style.setProperty('--cat', c.color); row.style.setProperty('--cat', c.color); }
+    else { d.style.removeProperty('--cat'); row.style.removeProperty('--cat'); }
+    d.title = c ? `Next thoughts: ${c.name} (tap to change)` : 'No category (tap to pick one)';
+    input.placeholder = c ? `What's on your mind? · ${c.name}` : "What's on your mind?";
+  }
+  // tap cycles none → first colour → … → none; keeps the keyboard where it is
+  $('catDot').addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const cur = stickyCat();
+    const i = cats.findIndex(c => c.id === cur);
+    const next = i < 0 ? cats[0] : cats[i + 1] || null;
+    setSticky(next ? next.id : null);
+  });
+  $('catDot').addEventListener('click', e => e.preventDefault());
+  renderCatDot();
   input.addEventListener('input', () => {
     sendBtn.classList.toggle('ready', input.value.trim().length > 0);
     input.style.height = 'auto';
@@ -1020,9 +1150,11 @@
   function addThoughts(texts) {
     const now = Date.now();
     // reverse so the first line ends up on top
+    const cat = stickyCat();
     texts.slice().reverse().forEach(t => {
-      items.unshift({ id: now + '' + Math.random().toString(36).slice(2, 6), text: t, created: now, priority: null });
+      items.unshift({ id: now + '' + Math.random().toString(36).slice(2, 6), text: t, created: now, priority: null, cat });
     });
+    if (cat) touchSticky();
     save();
   }
   function flash(msg) {
@@ -1064,6 +1196,7 @@
     quickItem = it;
     $('quickTxt').textContent = it.text;
     updateQuickButtons();
+    renderQuickCats(it);
     $('quickRow').hidden = false;
     const bar = $('quickTimerBar');
     bar.style.transition = 'none';
@@ -1074,6 +1207,15 @@
     });
     clearTimeout(quickTimer);
     quickTimer = setTimeout(hideQuick, 6000);
+  }
+  // a colour tap colours this thought and stays sticky for the next ones; the window restarts
+  function renderQuickCats(it) {
+    catChips($('quickCats'), it.cat || null, c => {
+      it.cat = c ? c.id : null;
+      setSticky(c ? c.id : null);
+      save(); renderMain();
+      showQuick(it);
+    });
   }
   function hideQuick() {
     clearTimeout(quickTimer);
@@ -1161,9 +1303,27 @@
     const list = $('archList');
     list.innerHTML = '';
     const visible = items.filter(it => !it.deleted && !it.vault && !expired(it));
-    for (const it of visible.slice().sort((a, b) => b.created - a.created)) {
+    // grouped by colour so you prioritise inside a category; no colours used = plain list
+    const grouped = visible.some(it => catOf(it));
+    const rank = it => { const i = cats.findIndex(c => c.id === it.cat); return i < 0 ? cats.length : i; };
+    const sorted = visible.slice().sort((a, b) => grouped && rank(a) !== rank(b) ? rank(a) - rank(b) : b.created - a.created);
+    let lastRank = -1;
+    for (const it of sorted) {
+      if (grouped && rank(it) !== lastRank) {
+        lastRank = rank(it);
+        const c = catOf(it);
+        const h = document.createElement('div');
+        h.className = 'archgroup';
+        if (c) h.style.setProperty('--cat', c.color);
+        const d = document.createElement('span'); d.className = 'dot';
+        const nm = document.createElement('span'); nm.textContent = c ? c.name : 'No colour';
+        const cnt = document.createElement('span'); cnt.className = 'n'; cnt.textContent = sorted.filter(x => rank(x) === lastRank).length;
+        h.append(d, nm, cnt);
+        list.appendChild(h);
+      }
       const el = document.createElement('div');
       el.className = 'arch' + (it.compass ? ' compass' : (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : '')));
+      paintCat(el, catOf(it));
       el.style.opacity = isGuest(it) ? guestOpacity(it) : fadeOpacity(it);
       el.dataset.id = it.id;
       const txt = document.createElement('div');
@@ -1182,6 +1342,17 @@
     $('archCount').textContent = `${marks()} / ${MAX_MARKS} picked` + (g ? ` · ${g} overflow` : '');
     renderBackupHint();
     renderSyncRow();
+    renderCatSettings();
+  }
+  // archive footer: the colours, tap a chip to rename it
+  function renderCatSettings() {
+    catChips($('catRow'), null, c => {
+      showModal('Rename category.', '', 'Save', res => {
+        const name = (res.reason || '').trim().slice(0, 20);
+        if (!name) return;
+        c.name = name; saveCats(); renderCatDot(); rerender();
+      }, { edit: c.name });
+    });
   }
 
   // single tap: toggle light/off · double tap: essential (dark)
@@ -1300,6 +1471,15 @@
     inp.placeholder = opts.reason || '';
     cmp.hidden = !needPick;
     cmp.innerHTML = '';
+    // opts.catsFor: a colour row; a tap recolours the thought and closes the dialog
+    const mc = $('modalCats');
+    mc.hidden = !opts.catsFor;
+    mc.innerHTML = '';
+    if (opts.catsFor) catChips(mc, opts.catsFor.cat || null, c => {
+      opts.catsFor.cat = c ? c.id : null;
+      $('modal').hidden = true;
+      save(); rerender();
+    });
     const alts = opts.alts || (opts.alt ? [opts.alt] : []);
     [alt, $('modalAlt2')].forEach((btn, i) => {
       const a = alts[i];
@@ -1514,7 +1694,7 @@
       it.why ? `Your why: "${it.why}"` : '',
       '✏️ Edit',
       () => openEdit(it),
-      { alts });
+      { alts, catsFor: it });
   }
   // drop a dragged card onto a category — dragging is deliberate, so no why-dialogs here,
   // only hard limits speak up
@@ -1728,6 +1908,7 @@
     for (const it of vs) {
       const row = document.createElement('div');
       row.className = 'vaultrow';
+      paintCat(row, catOf(it));
       const txt = document.createElement('div');
       txt.className = 'txt';
       txt.textContent = it.text;
@@ -1865,7 +2046,8 @@
     compass_prev: it.compassPrev || null,
     why: it.why || null,
     deleted: !!it.deleted,
-    vault: !!it.vault
+    vault: !!it.vault,
+    cat: it.cat || null
   });
   const fromRow = r => ({
     id: r.id,
@@ -1879,10 +2061,13 @@
     compassPrev: r.compass_prev || undefined,
     why: r.why || undefined,
     deleted: !!r.deleted,
-    vault: !!r.vault
+    vault: !!r.vault,
+    cat: r.cat || null
   });
 
-  let syncTimer = null, syncing = false, syncState = '', schemaLacksVault = false;
+  // columns the server table does not have yet (vault since v34, cat since v45): sync everything else
+  let syncTimer = null, syncing = false, syncState = '', schemaLacks = new Set();
+  const stripLacking = rows => schemaLacks.size ? rows.map(r => { const c = Object.assign({}, r); for (const k of schemaLacks) delete c[k]; return c; }) : rows;
   function setSyncState(s) { syncState = s; renderSyncRow(); }
   function scheduleSync() {
     if (!SYNC || !session) return;
@@ -1921,7 +2106,7 @@
       }
       // push everything that changed locally since the last sync
       let dirty = items.filter(i => (i.updated_at || 0) > last).map(toRow);
-      if (schemaLacksVault) dirty = dirty.map(r => { const c = Object.assign({}, r); delete c.vault; return c; });
+      dirty = stripLacking(dirty);
       if (dirty.length) {
         const push = rows => fetch(`${SYNC.url}/rest/v1/thoughts?on_conflict=user_id%2Cid`, {
           method: 'POST',
@@ -1931,10 +2116,11 @@
         let r2 = await push(dirty);
         if (!r2.ok) {
           const err = await r2.text();
-          // schema behind (vault column missing)? keep syncing everything else
-          if (/vault/.test(err)) {
-            schemaLacksVault = true;
-            dirty = dirty.map(r => { const c = Object.assign({}, r); delete c.vault; return c; });
+          // schema behind (a column missing)? drop it and keep syncing everything else
+          const missing = ['vault', 'cat'].find(k => !schemaLacks.has(k) && new RegExp("'" + k + "'|\\b" + k + "\\b column|column \"?" + k).test(err));
+          if (missing) {
+            schemaLacks.add(missing);
+            dirty = stripLacking(dirty);
             r2 = await push(dirty);
           }
           if (!r2.ok) { setSyncState('error'); return; }

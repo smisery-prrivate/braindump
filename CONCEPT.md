@@ -223,6 +223,30 @@ its thoughts there and received that account's thoughts.
 - Same pattern as Stillzeit (`stillzeit.linkAsked`) and Snapdoc (`snapdoc.linkAsked`).
 - Test: `_preview/tests/t1-signin-link.js` (not in the repo), run command in the header of `h.js` there.
 
+## Categories: a colour behind a thought (v45, 2026-10-29)
+Pat wants to prioritise inside a category (family first, then the company), so the colour has
+to be there before the archive is opened, without slowing the dump. "Gedanke kommt, zack Archiv"
+stays untouched: no colour question before or during typing.
+- Three colours to start: Family (rose), Invitris (blue), Me (green). Names editable in the
+  archive footer (tap a chip), ids and colours fixed, max three for now. Stored in
+  `braindump.cats`; a thought carries `cat: id | null`.
+- **Sticky colour.** A dot left of the input field shows the colour the next dumps get. Tapping it
+  cycles none → Family → Invitris → Me → none. No active dot = no colour. The sticky lets go
+  after two quiet hours (`braindump.stickyCat`), so the morning's family colour never lands on
+  the afternoon's company thought.
+- **Quick strip after a dump** has a second row with the three chips. A tap colours that thought
+  and makes the colour sticky; the 6 s window restarts, Compass/Five/Overflow stay tappable.
+  Tapping the active chip removes the colour and the sticky.
+- **Archive grouped by colour** with small headers (Family 3 · Invitris 2 · Me 1 · No colour 2),
+  newest first inside a group. No colours used anywhere = the plain list as before.
+- Every card and archive row (five, overflow, compass, vault) carries a 6 px left border in its
+  colour. Hold dialog has a colour row to recolour later; that is the exception path.
+- Sync: column `cat text` (schema addendum). Until the column exists the app drops it from
+  pushes and keeps syncing (generic missing-column fallback, replaces the v35 vault special case).
+- Test: `_preview/tests/t2-categories.js` (32 checks, real touch, sync stand-in incl. the
+  missing-column case).
+- Pat's next idea, not built: a shared category (Family) whose thoughts reach another user.
+
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
 - Should viewing/touching an archived thought refresh its 30-day clock? (Currently: creation date only.)
