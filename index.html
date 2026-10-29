@@ -114,6 +114,11 @@
     cursor: pointer;
   }
   .cchip .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--cat); }
+  .cchip .lk, .archgroup .lk { font-size: 11px; font-weight: 600; color: var(--teal-dark); letter-spacing: 0; text-transform: none; }
+  .who { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; max-width: 72px; overflow: hidden; text-overflow: ellipsis; }
+  .card.dark .who { color: #94a3b8; }
+  #modalCode { font-size: 30px; letter-spacing: .18em; font-weight: 700; text-align: center; margin: 6px 0 14px; color: var(--ink); user-select: all; }
+  #modalCode[hidden] { display: none; }
   .cchip.on { border-color: var(--cat); background: color-mix(in srgb, var(--cat) 12%, #fff); color: var(--ink); font-weight: 600; }
   #dumpInput {
     flex: 1;
@@ -696,7 +701,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v46</div>
+        <div class="version">v47</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -751,6 +756,7 @@
       <textarea id="modalInput" rows="2" hidden></textarea>
       <div id="modalCompare" hidden></div>
       <div id="modalCats" hidden></div>
+      <div id="modalCode" hidden></div>
       <button id="modalOk" class="bigbtn"></button>
       <button id="modalAlt" class="bigbtn altbtn" hidden></button>
       <button id="modalAlt2" class="bigbtn altbtn" hidden></button>
@@ -806,7 +812,7 @@
       <button id="syncOff" hidden>Sign out</button>
     </div>
     <div class="backuprow" id="catSettings">
-      <span>Categories · tap to rename</span>
+      <span>Categories · tap to rename or share</span>
       <div id="catRow"></div>
     </div>
     <div class="backuprow">
@@ -848,6 +854,14 @@
   if (!Array.isArray(cats) || !cats.length) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
   const saveCats = () => localStorage.setItem(CAT_KEY, JSON.stringify(cats));
   const catOf = it => (it && it.cat) ? cats.find(c => c.id === it.cat) || null : null;
+  // shared categories (v47): a category can be linked to a "circle" on the server; everyone who
+  // joined the circle by its code sees the thoughts in it and can tick them off
+  const CAT_COLORS = ['#e05a8a', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2'];
+  const isShared = c => !!(c && c.circle);
+  const catForCircle = cid => cid ? cats.find(c => c.circle && c.circle.id === cid) || null : null;
+  const NAME_KEY = 'braindump.myName';
+  const myName = () => localStorage.getItem(NAME_KEY) || (session && session.email ? session.email.split('@')[0] : '');
+  const catLabel = c => c.name + (isShared(c) ? ' · shared' : '');
   // sticky: the colour the next dumps get; a tap on a chip sets it, no chip = no colour
   function stickyCat() {
     let st = null;
@@ -861,10 +875,16 @@
     renderCatDot();
   }
   function touchSticky() { const id = stickyCat(); if (id) setSticky(id); }
-  function paintCat(el, c) {
+  function paintCat(el, c, it) {
     if (c) { el.classList.add('cat'); el.style.setProperty('--cat', c.color); }
     else { el.classList.remove('cat'); el.style.removeProperty('--cat'); }
+    if (it && isShared(c) && it.author) {
+      const w = document.createElement('span'); w.className = 'who'; w.textContent = it.author;
+      el.appendChild(w);
+    }
   }
+  // the who-label goes after the text: paintCat runs before the text exists, so place it last
+  function placeWho(el) { const w = el.querySelector('.who'); if (w) el.insertBefore(w, el.querySelector('.donebtn')); }
   // a row of chips; onPick(cat|null) — tapping the active chip clears
   function catChips(host, activeId, onPick) {
     host.innerHTML = '';
@@ -875,6 +895,7 @@
       b.style.setProperty('--cat', c.color);
       const d = document.createElement('span'); d.className = 'dot';
       b.append(d, document.createTextNode(c.name));
+      if (isShared(c)) { const lk = document.createElement('span'); lk.className = 'lk'; lk.textContent = '🔗'; b.appendChild(lk); }
       b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); onPick(c.id === activeId ? null : c); });
       b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
       host.appendChild(b);
@@ -1057,11 +1078,11 @@
     for (const it of cs) {
       const el = document.createElement('div');
       el.className = 'card compass';
-      paintCat(el, catOf(it));
+      paintCat(el, catOf(it), it);
       const txt = document.createElement('div');
       txt.className = 'txt';
       txt.textContent = it.text;
-      el.append(txt, doneBtn(it));
+      el.append(txt, doneBtn(it)); placeWho(el);
       attachLongPress(el, it);
       clist.appendChild(el);
     }
@@ -1073,11 +1094,11 @@
     for (const it of five) {
       const el = document.createElement('div');
       el.className = 'card ' + it.priority;
-      paintCat(el, catOf(it));
+      paintCat(el, catOf(it), it);
       const txt = document.createElement('div');
       txt.className = 'txt';
       txt.textContent = it.text;
-      el.append(txt, doneBtn(it));
+      el.append(txt, doneBtn(it)); placeWho(el);
       // tap flips the weight (light <-> dark); removal stays behind the archive ritual or the check
       el.addEventListener('click', () => {
         it.priority = it.priority === 'dark' ? 'light' : 'dark';
@@ -1096,7 +1117,7 @@
     for (const it of gs) {
       const el = document.createElement('div');
       el.className = 'card guest';
-      paintCat(el, catOf(it));
+      paintCat(el, catOf(it), it);
       el.style.opacity = guestOpacity(it);
       const txt = document.createElement('div');
       txt.className = 'txt';
@@ -1104,7 +1125,7 @@
       const left = document.createElement('div');
       left.className = 'left';
       left.textContent = `${guestHoursLeft(it)} h left`;
-      el.append(txt, left, doneBtn(it));
+      el.append(txt, left, doneBtn(it)); placeWho(el);
       attachLongPress(el, it);
       glist.appendChild(el);
     }
@@ -1121,7 +1142,7 @@
     if (c) { d.style.setProperty('--cat', c.color); row.style.setProperty('--cat', c.color); }
     else { d.style.removeProperty('--cat'); row.style.removeProperty('--cat'); }
     d.title = c ? `Next thoughts: ${c.name} (tap to change)` : 'No category (tap to pick one)';
-    input.placeholder = c ? `What's on your mind? · ${c.name}` : "What's on your mind?";
+    input.placeholder = c ? `What's on your mind? · ${catLabel(c)}` : "What's on your mind?";
   }
   // tap cycles none → first colour → … → none; keeps the keyboard where it is
   $('catDot').addEventListener('pointerdown', e => {
@@ -1151,8 +1172,9 @@
     const now = Date.now();
     // reverse so the first line ends up on top
     const cat = stickyCat();
+    const author = isShared(cats.find(c => c.id === cat)) ? myName() : undefined;
     texts.slice().reverse().forEach(t => {
-      items.unshift({ id: now + '' + Math.random().toString(36).slice(2, 6), text: t, created: now, priority: null, cat });
+      items.unshift({ id: now + '' + Math.random().toString(36).slice(2, 6), text: t, created: now, priority: null, cat, author });
     });
     if (cat) touchSticky();
     save();
@@ -1212,6 +1234,7 @@
   function renderQuickCats(it) {
     catChips($('quickCats'), it.cat || null, c => {
       it.cat = c ? c.id : null;
+      if (isShared(c) && !it.author) it.author = myName();
       setSticky(c ? c.id : null);
       save(); renderMain();
       showQuick(it);
@@ -1317,13 +1340,14 @@
         if (c) h.style.setProperty('--cat', c.color);
         const d = document.createElement('span'); d.className = 'dot';
         const nm = document.createElement('span'); nm.textContent = c ? c.name : 'No colour';
+        if (isShared(c)) { const lk = document.createElement('span'); lk.className = 'lk'; lk.textContent = '🔗 shared'; nm.appendChild(document.createTextNode(' ')); nm.appendChild(lk); }
         const cnt = document.createElement('span'); cnt.className = 'n'; cnt.textContent = sorted.filter(x => rank(x) === lastRank).length;
         h.append(d, nm, cnt);
         list.appendChild(h);
       }
       const el = document.createElement('div');
       el.className = 'arch' + (it.compass ? ' compass' : (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : '')));
-      paintCat(el, catOf(it));
+      paintCat(el, catOf(it), it);
       el.style.opacity = isGuest(it) ? guestOpacity(it) : fadeOpacity(it);
       el.dataset.id = it.id;
       const txt = document.createElement('div');
@@ -1332,7 +1356,7 @@
       const ag = document.createElement('div');
       ag.className = 'age';
       ag.textContent = isGuest(it) ? `overflow · ${guestHoursLeft(it)} h left` : ageLabel(it);
-      el.append(txt, ag, doneBtn(it));
+      el.append(txt, ag, doneBtn(it)); placeWho(el);
       attachTap(el, it);
       attachLongPress(el, it);
       list.appendChild(el);
@@ -1346,13 +1370,86 @@
   }
   // archive footer: the colours, tap a chip to rename it
   function renderCatSettings() {
-    catChips($('catRow'), null, c => {
-      showModal('Rename category.', '', 'Save', res => {
-        const name = (res.reason || '').trim().slice(0, 20);
-        if (!name) return;
-        c.name = name; saveCats(); renderCatDot(); rerender();
-      }, { edit: c.name });
+    catChips($('catRow'), null, c => openCatMenu(c));
+  }
+  function renameCat(c) {
+    showModal('Rename category.', '', 'Save', res => {
+      const name = (res.reason || '').trim().slice(0, 20);
+      if (!name) return;
+      c.name = name; saveCats(); renderCatDot(); rerender();
+    }, { edit: c.name });
+  }
+  function openCatMenu(c) {
+    const alts = [];
+    if (!SYNC || !session) {
+      alts.push({ label: 'Share with someone', onClick: () => showModal('Sync first.', 'Sharing runs through sync. Enable sync below, then come back here.', 'Got it', null) });
+    } else if (isShared(c)) {
+      alts.push({ label: 'Stop sharing on this phone', onClick: () => stopSharing(c) });
+    } else {
+      alts.push({ label: '🔗 Share with someone', onClick: () => shareCat(c) });
+      alts.push({ label: 'Join with a code', onClick: () => joinCat(c) });
+    }
+    showModal(c.name,
+      isShared(c) ? `Shared · code ${c.circle.code}. Everyone with this code sees these thoughts and can tick them off. Who wrote one stands on the card.` : 'Only on your devices.',
+      '✏️ Rename', () => renameCat(c), { alts, code: isShared(c) ? c.circle.code : null });
+  }
+  function askName(then) {
+    showModal('Your name on shared thoughts.', 'Short, the others see it on every card you write.', 'Continue', res => {
+      const nm = (res.reason || '').trim().slice(0, 16);
+      if (!nm) return;
+      localStorage.setItem(NAME_KEY, nm);
+      then(nm);
+    }, { edit: myName() || '' });
+  }
+  async function rpc(fn, args) {
+    const r = await fetch(`${SYNC.url}/rest/v1/rpc/${fn}`, { method: 'POST', headers: restHeaders(), body: JSON.stringify(args) });
+    if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+    return r.json();
+  }
+  function linkCircle(c, circle) {
+    c.circle = { id: circle.id, code: circle.code, name: circle.name };
+    for (const it of items) if (it.cat === c.id && !it.deleted) { if (!it.author) it.author = myName(); it.updated_at = Date.now(); }  // re-push with the circle
+    saveCats(); save(); rerender();
+  }
+  function shareCat(c) {
+    askName(async () => {
+      try {
+        if (!(await ensureSession())) throw new Error('offline');
+        const circle = await rpc('br_circle_create', { p_name: c.name, p_me: myName() });
+        linkCircle(c, circle);
+        showModal(`${c.name} is shared.`, 'Give the other person this code. In their app: Archive → Categories → tap a colour → Join with a code.', 'Done', null, { code: circle.code });
+        scheduleSync();
+      } catch (e) {
+        showModal('Could not share.', /relation|function|404/.test(e.message) ? 'The server is not set up for sharing yet.' : 'No connection. Try again later.', 'Got it', null);
+      }
     });
+  }
+  function joinCat(c) {
+    showModal(`Join a shared ${c.name}.`, 'Enter the code the other person gave you. Their thoughts in that category land here, yours there.', 'Join', res => {
+      const code = (res.reason || '').trim().toUpperCase();
+      if (!code) return;
+      askName(async () => {
+        try {
+          if (!(await ensureSession())) throw new Error('offline');
+          const circle = await rpc('br_circle_join', { p_code: code, p_me: myName() });
+          linkCircle(c, circle);
+          await pullCircle(circle.id);
+          showModal('Joined.', `${c.name} is now shared. Thoughts in it reach everyone with the code.`, 'Done', null);
+          scheduleSync();
+        } catch (e) {
+          showModal('Could not join.', /no circle/.test(e.message) ? 'No shared category with that code.' : 'No connection, or the server is not set up for sharing yet.', 'Got it', null);
+        }
+      });
+    }, { edit: '' });
+  }
+  async function stopSharing(c) {
+    const cid = c.circle.id;
+    delete c.circle;
+    for (const it of items) if (it.cat === c.id && !it.deleted) it.updated_at = Date.now();   // re-push without the circle
+    saveCats(); save(); rerender();
+    try { if (await ensureSession()) await fetch(`${SYNC.url}/rest/v1/br_circle_members?circle_id=eq.${cid}&user_id=eq.${session.uid}`, { method: 'DELETE', headers: restHeaders() }); } catch (e) {}
+    flash('Not shared any more.');
+    scheduleSync();
   }
 
   // single tap: toggle light/off · double tap: essential (dark)
@@ -1472,11 +1569,14 @@
     cmp.hidden = !needPick;
     cmp.innerHTML = '';
     // opts.catsFor: a colour row; a tap recolours the thought and closes the dialog
+    $('modalCode').hidden = !opts.code;
+    $('modalCode').textContent = opts.code || '';
     const mc = $('modalCats');
     mc.hidden = !opts.catsFor;
     mc.innerHTML = '';
     if (opts.catsFor) catChips(mc, opts.catsFor.cat || null, c => {
       opts.catsFor.cat = c ? c.id : null;
+      if (isShared(c) && !opts.catsFor.author) opts.catsFor.author = myName();
       $('modal').hidden = true;
       save(); rerender();
     });
@@ -2047,7 +2147,9 @@
     why: it.why || null,
     deleted: !!it.deleted,
     vault: !!it.vault,
-    cat: it.cat || null
+    cat: it.cat || null,
+    circle_id: isShared(catOf(it)) ? catOf(it).circle.id : null,
+    author: it.author || null
   });
   const fromRow = r => ({
     id: r.id,
@@ -2062,13 +2164,96 @@
     why: r.why || undefined,
     deleted: !!r.deleted,
     vault: !!r.vault,
-    cat: r.cat || null
+    cat: catForCircle(r.circle_id) ? catForCircle(r.circle_id).id : (r.cat || null),
+    author: r.author || undefined
   });
 
   // columns the server table does not have yet (vault since v34, cat since v45): sync everything else
   let syncTimer = null, syncing = false, syncState = '', schemaLacks = new Set();
   const stripLacking = rows => schemaLacks.size ? rows.map(r => { const c = Object.assign({}, r); for (const k of schemaLacks) delete c[k]; return c; }) : rows;
   function setSyncState(s) { syncState = s; renderSyncRow(); }
+  // rows from the server: my own rows replace mine (newest wins, as before); rows of other people
+  // in a shared circle only bring text, done and the author — my five and overflow stay mine
+  function mergeRows(rows) {
+    let maxSeen = 0, changed = false;
+    for (const r of rows) {
+      maxSeen = Math.max(maxSeen, +r.updated_at);
+      const foreign = !!r.user_id && !!session && r.user_id !== session.uid;
+      if (foreign) { if (applyForeign(r)) changed = true; continue; }
+      const inc = fromRow(r);
+      const idx = items.findIndex(i => i.id === inc.id);
+      if (idx < 0) {
+        items.push(inc);
+        snap[inc.id] = sigOf(inc);
+        changed = true;
+      } else if (inc.updated_at > (items[idx].updated_at || items[idx].created)) {
+        inc.sharedAt = items[idx].sharedAt; inc.deletedBy = items[idx].deletedBy;
+        items[idx] = inc;
+        snap[inc.id] = sigOf(inc);
+        changed = true;
+      }
+    }
+    return { maxSeen, changed };
+  }
+  function applyForeign(r) {
+    const c = catForCircle(r.circle_id);
+    if (!c) return false;                       // not one of my circles (any more)
+    const idx = items.findIndex(i => i.id === r.id);
+    if (idx < 0) {
+      if (r.deleted) return false;
+      // my own row for it: created now so it is pushed and my ticks reach the others
+      const it = { id: r.id, text: r.text, created: +r.created, updated_at: Date.now(), priority: null, cat: c.id, author: r.author || undefined, sharedAt: +r.updated_at };
+      items.push(it);
+      return true;
+    }
+    const it = items[idx];
+    if (+r.updated_at <= (it.sharedAt || 0)) return false;
+    let changed = false;
+    if (r.deleted && !it.deleted) { it.deleted = true; it.deletedBy = r.user_id; changed = true; }
+    else if (!r.deleted && it.deleted && it.deletedBy === r.user_id) { it.deleted = false; delete it.deletedBy; changed = true; }  // their undo
+    if (!r.deleted && r.text !== it.text && +r.updated_at > (it.updated_at || 0)) { it.text = r.text; changed = true; }
+    if (r.author && !it.author) { it.author = r.author; changed = true; }
+    if (it.cat !== c.id && !it.deleted) { it.cat = c.id; changed = true; }
+    it.sharedAt = +r.updated_at;
+    if (changed) snap[it.id] = sigOf(it);     // not a local change: no new stamp, nothing to push
+    return changed;
+  }
+  // the circles I belong to: each one gets a local category (same name, or a new colour)
+  let circlesOff = false;
+  async function refreshCircles() {
+    if (circlesOff) return;
+    let list;
+    try {
+      const r = await fetch(`${SYNC.url}/rest/v1/br_circles?select=id,name,code`, { headers: restHeaders() });
+      if (r.status === 404 || r.status === 400) { circlesOff = true; return; }   // server not set up for sharing
+      if (!r.ok) return;
+      list = await r.json();
+    } catch (e) { return; }
+    let changed = false;
+    const fresh = [];
+    for (const circle of list) {
+      let c = catForCircle(circle.id);
+      if (!c) {
+        c = cats.find(x => !x.circle && x.name.toLowerCase() === circle.name.toLowerCase());
+        if (!c) { c = { id: 'c' + circle.id.slice(0, 6), name: circle.name, color: CAT_COLORS[cats.length % CAT_COLORS.length] }; cats.push(c); }
+        c.circle = { id: circle.id, code: circle.code, name: circle.name };
+        fresh.push(circle.id);
+        changed = true;
+      } else if (c.circle.code !== circle.code) { c.circle.code = circle.code; changed = true; }
+    }
+    for (const c of cats) if (c.circle && !list.some(x => x.id === c.circle.id)) { delete c.circle; changed = true; }
+    if (changed) { saveCats(); renderCatDot(); }
+    for (const id of fresh) await pullCircle(id);
+  }
+  // everything in a circle, regardless of the cursor (after joining, or a circle found on another device)
+  async function pullCircle(cid) {
+    try {
+      const r = await fetch(`${SYNC.url}/rest/v1/thoughts?select=*&circle_id=eq.${cid}&order=updated_at.asc`, { headers: restHeaders() });
+      if (!r.ok) return;
+      const m = mergeRows(await r.json());
+      if (m.changed) { saveLocal(); rerender(); }
+    } catch (e) {}
+  }
   function scheduleSync() {
     if (!SYNC || !session) return;
     clearTimeout(syncTimer);
@@ -2089,21 +2274,9 @@
         { headers: restHeaders() });
       if (!res.ok) { setSyncState('error'); return; }
       const rows = await res.json();
-      let maxSeen = last, changedLocal = false;
-      for (const r of rows) {
-        maxSeen = Math.max(maxSeen, +r.updated_at);
-        const inc = fromRow(r);
-        const idx = items.findIndex(i => i.id === inc.id);
-        if (idx < 0) {
-          items.push(inc);
-          snap[inc.id] = sigOf(inc);
-          changedLocal = true;
-        } else if (inc.updated_at > (items[idx].updated_at || items[idx].created)) {
-          items[idx] = inc;
-          snap[inc.id] = sigOf(inc);
-          changedLocal = true;
-        }
-      }
+      await refreshCircles();
+      const m = mergeRows(rows);
+      let maxSeen = Math.max(last, m.maxSeen), changedLocal = m.changed;
       // push everything that changed locally since the last sync
       let dirty = items.filter(i => (i.updated_at || 0) > last).map(toRow);
       dirty = stripLacking(dirty);
@@ -2117,7 +2290,7 @@
         if (!r2.ok) {
           const err = await r2.text();
           // schema behind (a column missing)? drop it and keep syncing everything else
-          const missing = ['vault', 'cat'].find(k => !schemaLacks.has(k) && new RegExp("'" + k + "'|\\b" + k + "\\b column|column \"?" + k).test(err));
+          const missing = ['vault', 'cat', 'circle_id', 'author'].find(k => !schemaLacks.has(k) && new RegExp("'" + k + "'|\\b" + k + "\\b column|column \"?" + k).test(err));
           if (missing) {
             schemaLacks.add(missing);
             dirty = stripLacking(dirty);

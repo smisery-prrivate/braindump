@@ -245,7 +245,35 @@ stays untouched: no colour question before or during typing.
   pushes and keeps syncing (generic missing-column fallback, replaces the v35 vault special case).
 - Test: `_preview/tests/t2-categories.js` (32 checks, real touch, sync stand-in incl. the
   missing-column case).
-- Pat's next idea, not built: a shared category (Family) whose thoughts reach another user.
+- Shared categories followed in v47.
+
+## Shared categories (v47, 2026-10-29)
+Pat's idea: "im Prinzip synchen wir Kategorien". A category can be shared with other people;
+everyone in it sees the thoughts of that colour and can tick them off. Everything else stays
+private. Built on the Stillzeit pattern: a six-letter code, no e-mail invitations.
+- Server: `br_circles` (id, name, code), `br_circle_members` (circle, user, name), columns
+  `circle_id` + `author` on thoughts, select policy "own or circle rows", RPCs
+  `br_circle_create(name, me)` / `br_circle_join(code, me)`. SQL in `supabase-shared-v47.sql`.
+- **Every member keeps their own row per thought** (primary key user_id + id). Shared between the
+  rows: text (newest wins), done (any member's tick, a tombstone on every copy; their own undo is
+  honoured) and the author's name. Priority, overflow, compass and why stay per person: Lena's
+  five are Lena's. No cross-user writes, so RLS stays "write own rows only".
+- Local: `cats[i].circle = {id, code, name}`; `item.author`, `item.sharedAt` (newest foreign
+  stamp applied), `item.deletedBy`. Rows of others are merged by `applyForeign`; own rows as
+  before. Every sync lists my circles (`br_circles`) and links each to a local category (same
+  name, else a new colour), then pulls that circle in full once (`pullCircle`). A 404 there means
+  the server is not set up for sharing: sync continues without it.
+- UI: archive footer "Categories · tap to rename or share" → chip opens a menu: Rename (main),
+  Share with someone (asks for a short name, shows the code), Join with a code, or Stop sharing
+  on this phone. Reminders everywhere: 🔗 on the chip, "🔗 shared" in the archive group header,
+  placeholder "What's on your mind? · Family · shared", and the writer's name on every shared
+  card (own ones too, so both sides read the same).
+- Joining links the tapped category: Lena's existing Family thoughts become shared too (her
+  choice of category is the share). Stop sharing keeps the category and the thoughts, re-pushes
+  them without the circle and leaves the membership; the others keep their copies.
+- Test: `_preview/tests/t3-shared.js` (31 checks, two people on one stand-in server; h.js gained a
+  shared store, circles, RPCs and per-page identity).
+- Needs: both people signed in to sync; custom SMTP before inviting strangers (2 mails/h limit).
 
 ## Open design decisions (from the thread)
 - When a slot frees up (item deselected), should the app prompt to refill to five?
