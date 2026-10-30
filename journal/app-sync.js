@@ -323,7 +323,7 @@ async function applyRow(row) {
     const e = Object.assign({ segs: [] }, m, { cloud: true, srv: row.synced_at, pushed_at: m.updated_at, up: {}, broken: false });
     for (const g of mediaOf(e)) e.up[g.id] = true;
     mergeText(e);
-    entries.push(e); entries.sort((a, b) => (b.created || 0) - (a.created || 0));
+    entries.push(e); sortEntries();
     await persist(e, { quiet: true }); return 'ok';
   }
   if (m.updated_at > (local.updated_at || 0)) {
@@ -333,6 +333,7 @@ async function applyRow(row) {
       const up = local.up || {}; for (const g of mediaOf(m)) up[g.id] = true;
       for (const g of mediaOf(local)) if (!mediaOf(m).some(x => x.id === g.id)) { idb.del('segs', g.id).catch(() => {}); }
       Object.assign(local, m, { cloud: true, srv: row.synced_at, pushed_at: m.updated_at, up, broken: false });
+      if (m.created !== undefined) sortEntries();                                     // the date may have been changed elsewhere
       mergeText(local);
       if (curEntry === local) { stopPlayer(); renderEntry(); }
     }

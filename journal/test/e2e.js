@@ -139,6 +139,16 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check(await page.evaluate(() => journalDebug.entries.some(x => !x.deleted && x.text === 'Per Tastatur diktiert')), 'keyboard engine: entry kept with its text');
   await page.evaluate(async () => { const e = journalDebug.entries.find(x => x.text === 'Per Tastatur diktiert'); e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); journalDebug.settings.engine = 'cloud'; saveSettings(); }); await sleep(300);
 
+  // 2e4. the date of an entry can be set back; the list sorts it into its day
+  await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Nachgetragen');
+  check((await page.textContent('#entryDate')).includes(String(new Date().getFullYear())), 'date chip shows the date');
+  await page.fill('#entryDateIn', '2024-05-17T21:30'); await page.dispatchEvent('#entryDateIn', 'change'); await sleep(300);
+  check((await page.textContent('#entryDate')).includes('2024') && /21:30|9:30/.test(await page.textContent('#entryDate')), 'date chip shows the new date');
+  await page.click('#entrySave'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  const back1 = await page.evaluate(async () => { const live = journalDebug.entries.filter(x => !x.deleted); const e = live.find(x => x.text === 'Nachgetragen'); const d = new Date(e.created); const r = await journalDebug.idb.get('entries', e.id); return { last: live[live.length - 1] === e, y: d.getFullYear(), m: d.getMonth(), d: d.getDate(), h: d.getHours(), stored: !!r, cardLast: [...document.querySelectorAll('.card')].pop().textContent.includes('Nachgetragen') }; });
+  check(back1.y === 2024 && back1.m === 4 && back1.d === 17 && back1.h === 21 && back1.stored && back1.last && back1.cardLast, 'entry moved to 17 May 2024 and to the end of the list');
+  await page.evaluate(async () => { const e = journalDebug.entries.find(x => x.text === 'Nachgetragen'); e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); renderHome(); }); await sleep(300);
+
   // 2e3. Save button: stores, says so, back to the list
   await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Gespeichert per Knopf');
   await page.click('#entrySave'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);

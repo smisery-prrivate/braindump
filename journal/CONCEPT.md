@@ -49,6 +49,8 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   as the first message of a new chat.
 - **Long press** on an entry in the list picks it (pick mode, below). Share and Claude live inside
   the entry.
+- **Date.** The date chip in the entry opens the phone's date and time picker: a memo added
+  afterwards gets the day it belongs to and moves to its place in the list.
 - **Save.** The entry has a Save button: it stores, says "Saved" and returns to the list. Text is
   also stored on its own while typing, on Back and when the app goes to the background.
 - **Several at once.** "Select" in the header (or a long press) turns
@@ -224,6 +226,8 @@ See `README.md`.
 
 ## History
 
+- v17 (2026-10-30): the entry's date and time can be changed (date chip in the entry, the phone's
+  own picker), for memos added afterwards; the list re-sorts, the date travels in backup and cloud.
 - v16 (2026-10-30): Save button in the entry; stopping dictation keeps the last phrase that was
   still provisional (it was lost on Back); typing stops dictation; the field is stored before any
   redraw, on blur and when the app goes to the background. Long press goes straight to pick mode.

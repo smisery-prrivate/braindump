@@ -38,7 +38,11 @@
   .chip { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
   .chip.on { background: var(--accent); color: #fff; border-color: transparent; }
   .chip.add { color: var(--accent); }
-  #entryFolderRow { padding-bottom: 8px; }
+  #entryFolderRow { padding-bottom: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  /* the date chip: the real date field lies invisibly on top, so a tap opens the phone's own picker */
+  .datebox { position: relative; display: inline-flex; flex: none; }
+  #entryDateIn { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: none; padding: 0; margin: 0; cursor: pointer; }
+  #entryDateIn::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
   .card .th { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; flex: none; background: var(--line); }
   .card .tick { width: 26px; height: 26px; border-radius: 13px; border: 2px solid var(--line); flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 15px; font-weight: 700; align-self: center; }
   .card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); background: var(--accent-bg); }
@@ -241,8 +245,8 @@
       <button id="entrySave" class="pill save">Save</button>
       <button id="entryMore" class="icon" aria-label="More">⋯</button>
     </header>
+    <div class="subline" id="entryFolderRow"><span class="datebox"><button id="entryDate" class="chip" tabindex="-1">📅</button><input id="entryDateIn" type="datetime-local" aria-label="Date and time of this entry"></span><button id="entryFolder" class="chip">📁 No folder</button></div>
     <div id="entryMeta" class="subline"></div>
-    <div class="subline" id="entryFolderRow"><button id="entryFolder" class="chip">📁 No folder</button></div>
     <div id="recBar" class="recbar" hidden>
       <div class="row"><span class="recdot" id="recDot"></span><span id="recState">Recording</span><span class="rectime" id="recTime">0:00</span><button id="recPause" class="pill">Pause</button><button id="recStop" class="pill stop">Stop</button></div>
       <div class="meter" id="meter"></div>

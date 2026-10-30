@@ -120,6 +120,15 @@ function pickFolder(e) {
   popup('Folder', '', btns);
 }
 $('entryFolder').addEventListener('click', () => { if (curEntry) pickFolder(curEntry); });
+// the entry's date and time can be set back (or forward), for a memo added afterwards
+const toLocalInput = t => { const d = new Date(t); return new Date(t - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+$('entryDateIn').addEventListener('click', ev => { try { ev.target.showPicker(); } catch (err) {} });
+$('entryDateIn').addEventListener('change', ev => {
+  const e = curEntry; if (!e || !ev.target.value) return;
+  const t = new Date(ev.target.value).getTime(); if (!isFinite(t) || t === e.created) return;
+  e.created = t; sortEntries(); persist(e); renderEntry(); renderHome();
+  toast('Date set to ' + fmtDay(t) + ', ' + fmtTime(t));
+});
 
 let holdTimer = null, holdCard = null, holdX = 0, holdY = 0, holdFired = false;
 $('list').addEventListener('click', ev => {
@@ -200,7 +209,9 @@ function renderEntry() {
   const e = curEntry; if (!e || current() !== 'entry') return;
   const ti = $('entryTitle'); if (document.activeElement !== ti) ti.value = e.title || '';
   const segs = e.segs || [];
-  $('entryMeta').textContent = fmtDay(e.created) + ' · ' + fmtTime(e.created) + (segs.length ? ' · ' + fmtDur(entryDur(e)) + ' · ' + fmtSize(segs.reduce((a, g) => a + (g.size || 0), 0)) : '') + (e.cloud ? ' · in the cloud' : '');
+  $('entryMeta').textContent = (segs.length ? fmtDur(entryDur(e)) + ' · ' + fmtSize(segs.reduce((a, g) => a + (g.size || 0), 0)) : '') + (e.cloud ? (segs.length ? ' · ' : '') + 'in the cloud' : '');
+  $('entryDate').textContent = '📅 ' + fmtDay(e.created) + ' · ' + fmtTime(e.created);
+  const di = $('entryDateIn'); if (document.activeElement !== di) di.value = toLocalInput(e.created);
   $('entryFolder').textContent = '📁 ' + (e.folder || 'No folder'); $('entryFolder').classList.toggle('on', !!e.folder);
   const body = $('entryBody'), nt = $('noteText');
   if (nt && document.activeElement === nt) { renderTxState(); return; }                               // never redraw under a moving cursor
