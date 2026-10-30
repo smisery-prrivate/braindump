@@ -70,11 +70,11 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
   await page.evaluate(async () => { const e = journalDebug.entries[0]; for (const g of e.segs) { g.st = 'todo'; g.text = ''; g.merged = false; } e.text = ''; await journalDebug.persist(e); await journalDebug.saveStt(null); journalDebug.settings.engine = 'cloud'; saveSettings(); });
 
-  // 2c. long press on a card opens the options menu; a plain tap still opens the entry
+  // 2c. long press on a card picks it (pick mode); a plain tap still opens the entry
   const box = await (await page.$('.card')).boundingBox();
   await page.mouse.move(box.x + 40, box.y + 20); await page.mouse.down(); await sleep(700); await page.mouse.up(); await sleep(300);
-  check(await page.isVisible('#popup.open') && (await page.textContent('#popupBox')).includes('Delete entry') && await page.isVisible('#home:not([hidden])'), 'long press opens the menu without opening the entry');
-  await page.click('#popupBox button.quiet'); await sleep(300);
+  check(await page.isVisible('#selDock') && (await page.$$('.card.sel')).length === 1 && await page.isVisible('#home:not([hidden])') && !(await page.isVisible('#popup.open')), 'long press picks the entry without a menu');
+  await page.click('#selCancel'); await sleep(300);
   await page.evaluate(() => { journalDebug.settings.engine = 'phone'; });
   await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
   check(await page.isVisible('#dictBtn') && await page.isVisible('#claudeBtn'), 'Dictate and Claude buttons in the entry');
@@ -138,6 +138,15 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.fill('#noteText', 'Per Tastatur diktiert'); await sleep(1000); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
   check(await page.evaluate(() => journalDebug.entries.some(x => !x.deleted && x.text === 'Per Tastatur diktiert')), 'keyboard engine: entry kept with its text');
   await page.evaluate(async () => { const e = journalDebug.entries.find(x => x.text === 'Per Tastatur diktiert'); e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); journalDebug.settings.engine = 'cloud'; saveSettings(); }); await sleep(300);
+
+  // 2e3. Save button: stores, says so, back to the list
+  await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Gespeichert per Knopf');
+  await page.click('#entrySave'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await page.evaluate(async () => { const e = journalDebug.entries.find(x => !x.deleted && x.text === 'Gespeichert per Knopf'); if (!e) return false; const r = await journalDebug.idb.get('entries', e.id); return !!r; }) && (await page.textContent('#toast')).includes('Saved'), 'Save stores the text at once and returns to the list');
+  // Back right after typing (no pause) keeps the text too
+  await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.type('#noteText', 'Schnell zurueck'); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await page.evaluate(() => journalDebug.entries.some(x => !x.deleted && x.text === 'Schnell zurueck')), 'Back right after typing keeps the text');
+  await page.evaluate(async () => { for (const e of journalDebug.entries.filter(x => !x.deleted && (x.text === 'Gespeichert per Knopf' || x.text === 'Schnell zurueck'))) { e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); } renderHome(); }); await sleep(300);
 
   // 2f. pick mode: two entries deleted at once, undo brings both back, then deleted for good
   await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Eins'); await sleep(1000); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
@@ -256,6 +265,26 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.evaluate(() => journalDebug.syncNow());
   await page.waitForFunction(() => journalDebug.entries.find(x => x.title === 'Erster Test').deleted, null, { timeout: 20000 });
   check(!(await page.textContent('#list')).includes('Erster Test'), 'deletion propagated to the first device');
+
+  // 9. dictation stopped by Back keeps the last phrase that was still provisional (a fake recognition
+  // that, like Android, leaves the last phrase interim and sends its final only after stop())
+  const ctx4 = await browser.newContext({ viewport: { width: 400, height: 800 } }); await ctx4.grantPermissions(['microphone']);
+  await ctx4.addInitScript(() => {
+    class FakeSR { start() { const me = this; setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: 'erster Satz' }], { isFinal: true }), Object.assign([{ transcript: 'letzter Satz vorlaeufig' }], { isFinal: false })] }), 100); } stop() { const me = this; setTimeout(() => me.onend && me.onend(), 50); } abort() {} }
+    window.SpeechRecognition = window.webkitSpeechRecognition = FakeSR;
+  });
+  const p4 = await ctx4.newPage(); p4.on('pageerror', e => errors.push('p4 pageerror: ' + e.message));
+  await p4.goto(BASE); await p4.waitForFunction(() => window.journalDebug && journalDebug.entries);
+  await p4.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
+  await p4.click('#recBtn'); await p4.waitForSelector('#noteText'); await sleep(600);
+  check((await p4.inputValue('#noteText')).includes('letzter Satz vorlaeufig'), 'dictation shows the provisional phrase');
+  await p4.click('#entryBack'); await p4.waitForSelector('#home:not([hidden])'); await sleep(400);
+  check(await p4.evaluate(() => journalDebug.entries.some(x => !x.deleted && x.text.includes('erster Satz') && x.text.includes('letzter Satz vorlaeufig'))), 'Back during dictation keeps the provisional last phrase');
+  // typing while dictating stops dictation and keeps both
+  await p4.click('.card'); await p4.waitForSelector('#noteText'); await p4.click('#dictBtn'); await sleep(400);
+  await p4.focus('#noteText'); await p4.keyboard.press('End'); await p4.keyboard.type(' getippt'); await sleep(700);
+  await p4.click('#entrySave'); await p4.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await p4.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.text.endsWith('getippt') && e.text.includes('letzter Satz vorlaeufig'); }), 'typing stops dictation and keeps dictated and typed text');
 
   console.log('\nerrors:', errors.length ? errors : 'none');
   if (errors.length) fails++;

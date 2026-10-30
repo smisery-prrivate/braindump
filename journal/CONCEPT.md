@@ -47,9 +47,11 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   cloud a short clip is recorded and sent, and the text is appended. An entry left empty is not
   kept. "Open in Claude" in the entry menu hands the entry's text to the Claude app or claude.ai
   as the first message of a new chat.
-- **Long press** on an entry in the list: a menu with Open, Select more, Share as text, Open in
-  Claude, Delete.
-- **Several at once.** "Select" in the header (or "Select more" from the long-press menu) turns
+- **Long press** on an entry in the list picks it (pick mode, below). Share and Claude live inside
+  the entry.
+- **Save.** The entry has a Save button: it stores, says "Saved" and returns to the list. Text is
+  also stored on its own while typing, on Back and when the app goes to the background.
+- **Several at once.** "Select" in the header (or a long press) turns
   the list into a pick list: a tap picks, the bar at the bottom deletes all picked entries (one
   undo for the whole batch) or moves them to a folder.
 - **Folders.** Chips above the list: All, every folder, "+ Folder". A chip filters the list and
@@ -222,6 +224,9 @@ See `README.md`.
 
 ## History
 
+- v16 (2026-10-30): Save button in the entry; stopping dictation keeps the last phrase that was
+  still provisional (it was lost on Back); typing stops dictation; the field is stored before any
+  redraw, on blur and when the app goes to the background. Long press goes straight to pick mode.
 - v15 (2026-10-28): keyboard engine: the microphone opens the text window with the keyboard up,
   the keyboard's own voice typing (Gboard) does the listening.
 - v14 (2026-10-28): pick mode: delete or move several entries at once.

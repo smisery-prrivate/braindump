@@ -130,7 +130,7 @@ $('list').addEventListener('click', ev => {
   if (e.state === 'rec' && recording) { push('rec'); return; }
   openEntry(e);
 });
-// long press (500 ms, finger still) on an entry: the options menu
+// long press (500 ms, finger still) on an entry: pick mode
 function holdCancel() { clearTimeout(holdTimer); holdTimer = null; holdCard = null; }
 $('list').addEventListener('pointerdown', ev => {
   const c = ev.target.closest('.card'); if (!c || locked || ev.button > 0) return;
@@ -141,13 +141,11 @@ $('list').addEventListener('pointermove', ev => { if (holdCard && (Math.abs(ev.c
 for (const t of ['pointerup', 'pointercancel', 'pointerleave']) $('list').addEventListener(t, () => { if (holdTimer) holdCancel(); });
 $('list').addEventListener('scroll', holdCancel);
 $('list').addEventListener('contextmenu', ev => { if (ev.target.closest('.card')) ev.preventDefault(); });
+// long press on an entry: pick mode with this entry picked (delete or move from the bar below)
 function entryMenu(e) {
   if (e.state === 'rec' && recording) return;
   if (selMode) { if (!selIds.has(e.id)) { selIds.add(e.id); renderHome(); } return; }
-  const btns = [{ label: 'Open', fn: () => openEntry(e) }, { label: 'Select more…', fn: () => startSelect(e.id) }];
-  if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) }, { label: 'Open in Claude', now: true, fn: () => openInClaude(e) });
-  btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) }, { label: 'Cancel', cls: 'quiet' });
-  popup(entryLabel(e), fmtDay(e.created) + ' · ' + fmtTime(e.created) + (e.segs && e.segs.length ? ' · ' + fmtDur(entryDur(e)) : ''), btns);
+  startSelect(e.id);
 }
 $('searchBox').addEventListener('input', ev => { searchQ = ev.target.value; renderHome(); });
 $('menuBtn').addEventListener('click', () => openSheet());
@@ -206,6 +204,7 @@ function renderEntry() {
   $('entryFolder').textContent = '📁 ' + (e.folder || 'No folder'); $('entryFolder').classList.toggle('on', !!e.folder);
   const body = $('entryBody'), nt = $('noteText');
   if (nt && document.activeElement === nt) { renderTxState(); return; }                               // never redraw under a moving cursor
+  commitText();                                                                                         // nothing typed is lost to a redraw                               // never redraw under a moving cursor
   let html = '';
   if (segs.length) {
     html += '<div class="player"><div class="row"><button class="play" id="playBtn" aria-label="Play">▶</button><input type="range" id="seek" min="0" max="' + Math.max(1, Math.round(entryDur(e))) + '" value="0" step="250"></div>' +
@@ -213,13 +212,14 @@ function renderEntry() {
       '<div class="speed">' + [1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
       '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
   }
-  html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate">' + (dictOn ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" placeholder="Write, or tap Dictate…">' + esc(e.text || '') + '</textarea></div>';
+  html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate">' + (dictOn ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write, or tap Dictate…">' + esc(dictOn && dictEntry === e ? dictText('') : e.text || '') + '</textarea></div>';
   html += '<div class="txcard"><div class="t"><span>Photos</span></div><div class="pics" id="picGrid"></div></div>';
   body.innerHTML = html;
   renderPics();
   $('picGrid').addEventListener('click', ev => { const im = ev.target.closest('img'); if (im) { openLightbox(e, +im.dataset.i); return; } if (ev.target.closest('#addPic')) { $('picInput').value = ''; $('picInput').click(); } });
   renderRecBar(); renderTxState(); wirePlayer();
-  $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 800); });
+  $('noteText').addEventListener('input', () => { if (dictOn && !clipRec) { stopDictation(); return; } clearTimeout(textTimer); textTimer = setTimeout(commitText, 500); });
+  $('noteText').addEventListener('blur', commitText);
   $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : settings.engine === 'keyboard' ? (nt.focus(), keyboardHint()) : startDictation());
   $('claudeBtn').addEventListener('click', () => { commitTitle(); commitText(); if (!entryText(e)) { toast('Nothing to send yet.'); return; } openInClaude(e); });
 }
@@ -297,10 +297,13 @@ function stopDictation() {
   dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
   if (!recording) releaseWake();
   const e = dictEntry; dictEntry = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
-  if (e) { e.text = (dictBase + dictFinal).replace(/\s+$/, ''); if (curEntry === e) { dictApply(''); } persist(e); renderHome(); }
+  // what stands in the field is what is kept: on Android the last phrase is often still "interim"
+  // when dictation stops, and the final result for it arrives after the stop (ignored)
+  const nt = $('noteText');
+  if (e) { e.text = (curEntry === e && nt && nt.dataset.id === e.id ? nt.value : dictBase + dictFinal).replace(/\s+$/, ''); if (nt && curEntry === e) nt.value = e.text; persist(e); renderHome(); }
   const b = $('dictBtn'); if (b) b.textContent = '🎙 Dictate';
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden && dictOn) stopDictation(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) return; if (dictOn) stopDictation(); commitTitle(); commitText(); });
 // Open the Claude app (or claude.ai) on a new chat, with text as the first message when given.
 // Android: an intent URL opens the installed app directly and falls back to the web site.
 function openClaude(q) {
@@ -333,18 +336,26 @@ function renderTxState() {
 function commitTitle() { const e = curEntry; if (!e) return; const v = $('entryTitle').value.trim(); if (v !== (e.title || '')) { e.title = v; persist(e); renderHome(); } }
 function commitText() {
   clearTimeout(textTimer); const e = curEntry; if (!e) return;
-  const nt = $('noteText'); if (nt && nt.value !== (e.text || '')) { e.text = nt.value; persist(e); renderHome(); }
+  if (dictOn) return;                                                                 // dictation owns the field until it stops
+  const nt = $('noteText'); if (nt && nt.dataset.id === e.id && nt.value !== (e.text || '')) { e.text = nt.value; persist(e); renderHome(); }
 }
 $('entryTitle').addEventListener('input', () => { clearTimeout(titleTimer); titleTimer = setTimeout(commitTitle, 600); });
 $('entryTitle').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); commitTitle(); } });
 $('entryTitle').addEventListener('blur', commitTitle);
-$('entryBack').addEventListener('click', () => back());
+$('entryBack').addEventListener('click', () => { if (dictOn) stopDictation(); commitTitle(); commitText(); back(); });
+$('entrySave').addEventListener('click', async () => {
+  const e = curEntry; if (!e) return;
+  if (dictOn) stopDictation(); commitTitle(); commitText();
+  const ok = await persist(e);
+  if (!ok) return;                                                                      // persist already said why
+  toast((e.text || '').trim() || (e.title || '').trim() || (e.segs && e.segs.length) || (e.pics && e.pics.length) ? 'Saved' : 'Nothing to save');
+  if (curEntry === e) back();
+});
 $('entryMore').addEventListener('click', () => {
   const e = curEntry; if (!e) return;
   commitTitle(); commitText();
   const btns = [];
   if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) });
-  if (entryText(e)) btns.push({ label: 'Open in Claude', now: true, fn: () => openInClaude(e) });
   if (e.segs && e.segs.length) btns.push({ label: 'Share the audio', fn: () => shareAudio(e) });
   if (e.segs && e.segs.some(g => g.st === 'done')) btns.push({ label: 'Transcribe again', fn: () => popup('Transcribe again?', 'The recording is transcribed anew and the new text is added below what is there.', [{ label: 'Transcribe again', cls: 'primary', fn: () => retranscribe(e) }, { label: 'Cancel', cls: 'quiet' }]) });
   btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) });
