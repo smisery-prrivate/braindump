@@ -45,6 +45,8 @@
   #entryDateIn::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
   .card .th { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; flex: none; background: var(--line); }
   .card .tick { width: 26px; height: 26px; border-radius: 13px; border: 2px solid var(--line); flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 15px; font-weight: 700; align-self: center; }
+  .locknudge { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: calc(100% - 32px); margin: 0 16px 10px; padding: 12px 14px; border: 1px solid transparent; border-radius: 14px; background: var(--danger-bg); color: var(--danger); text-align: left; font-size: 14px; }
+  .locknudge span { font-size: 13px; color: var(--ink); }
   .card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); background: var(--accent-bg); }
   .card.sel .tick { background: var(--accent); border-color: var(--accent); }
   .card.sel .tick::after { content: '✓'; }
@@ -215,6 +217,7 @@
       <button id="menuBtn" class="pill">Menu</button>
     </header>
     <div id="syncline" class="subline"></div>
+    <button id="lockNudge" class="locknudge" hidden><b>🔓 Not locked yet</b><span>Tap to lock with fingerprint, pattern or PIN</span></button>
     <div class="chips" id="folderRow"></div>
     <div class="searchrow" id="searchRow" hidden>
       <input id="searchBox" type="search" autocomplete="off" placeholder="Search your journal" aria-label="Search entries">

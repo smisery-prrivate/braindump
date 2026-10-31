@@ -137,7 +137,7 @@ function renderInstallBox() {
 }
 function renderSheet() {
   if (!stack.includes('sheet')) return;
-  $('panel').innerHTML = '<div class="grab"></div><h2>Transcription</h2><div id="txBox"></div><h2>Cloud</h2><div id="syncBox"></div><h2>App lock</h2><div id="lockBox"></div>' +
+  $('panel').innerHTML = '<div class="grab"></div><h2>App lock</h2><div id="lockBox"></div><h2>Transcription</h2><div id="txBox"></div><h2>Cloud</h2><div id="syncBox"></div>' +
     '<h2>Recording</h2>' +
     '<div class="rowopt"><span>Store a part every</span><select id="setSeg">' + SEG_MIN.map(m => '<option value="' + m + '">' + m + ' minutes</option>').join('') + '</select></div>' +
     '<div class="hint">Shorter parts mean less is lost if the phone dies, and the transcript arrives sooner; a change applies to the next recording.</div>' +
@@ -197,7 +197,7 @@ function renderLockBox() {
     $('lockAfter').addEventListener('change', e => { settings.lockAfter = +e.target.value; saveSettings(); });
     $('lockNow').addEventListener('click', () => relock());
     $('lockOff').addEventListener('click', () => popup('Turn the lock off?', 'Anyone who can open this phone can then open your journal.', [
-      { label: 'Turn off', cls: 'danger', fn: async () => { try { await Vault.clearLock(); toast('Lock is off'); } catch (e) { toast('Could not turn it off: ' + errText(e)); } renderLockBox(); } },
+      { label: 'Turn off', cls: 'danger', fn: async () => { try { await Vault.clearLock(); toast('Lock is off'); } catch (e) { toast('Could not turn it off: ' + errText(e)); } renderLockBox(); renderLockNudge(); } },
       { label: 'Keep it on', cls: 'quiet' }]));
     return;
   }
@@ -213,26 +213,31 @@ function renderLockBox() {
       const prob = pinProblem(a); if (prob) { hint.textContent = prob; return; }
       if (a !== b) { hint.textContent = 'The two entries differ.'; return; }
       saving = true; hint.textContent = 'Setting up…';
-      try { await Vault.setPin(a); pinStep = false; toast('Lock is on'); renderLockBox(); resealAll(); } catch (e) { hint.textContent = 'Not set up: ' + errText(e); if (Vault.lockType()) { pinStep = false; renderLockBox(); resealAll(); } } finally { saving = false; }
+      try { await Vault.setPin(a); pinStep = false; toast('Lock is on'); renderLockBox(); renderLockNudge(); resealAll(); } catch (e) { hint.textContent = 'Not set up: ' + errText(e); if (Vault.lockType()) { pinStep = false; renderLockBox(); resealAll(); } } finally { saving = false; }
     });
     return;
   }
   box.innerHTML = '<p>Your journal is stored encrypted on this phone. With a lock, the key is released only by your fingerprint or screen lock. Turn it on before you record anything private.</p>' +
     '<button class="btn primary" id="lockOnBio">Use fingerprint / screen lock</button><button class="btn" id="lockOnPin">Use a password or long PIN instead</button><div class="hint" id="lockHint"></div>';
   $('lockOnPin').addEventListener('click', () => { pinStep = true; renderLockBox(); });
-  let setting = false;
-  $('lockOnBio').addEventListener('click', async () => {
-    const hint = $('lockHint'); if (setting) return;
-    setting = true;
-    try {
-      if (!(await Vault.biometricAvailable())) { hint.textContent = 'This device or browser offers no fingerprint or screen lock here. Use a password or long PIN instead.'; return; }
-      hint.textContent = 'Confirm with your fingerprint or screen lock. Your phone may ask twice.';
-      const t = await Vault.setBiometric();
-      toast(t === 'gate' ? 'Lock is on. On this browser it guards the screen only.' : 'Lock is on'); renderLockBox(); resealAll();
-    } catch (e) { hint.textContent = e && e.name === 'NotAllowedError' ? 'Not set up: it was cancelled. Tap again to retry.' : 'Not set up: ' + errText(e); if (Vault.lockType()) { renderLockBox(); resealAll(); } }
-    finally { setting = false; }
-  });
+  $('lockOnBio').addEventListener('click', () => lockWithScreenLock(t => { const h = $('lockHint'); if (h) h.textContent = t; }));
 }
+// fingerprint / the phone's screen lock (pattern, PIN, face): the key is released only through it
+let lockSetting = false;
+async function lockWithScreenLock(say) {
+  if (lockSetting || Vault.lockType()) return;
+  lockSetting = true;
+  try {
+    if (!(await Vault.biometricAvailable())) { say('This device or browser offers no fingerprint or screen lock here. Use a password or long PIN instead.'); if (!stack.includes('sheet')) { openSheet(); pinStep = true; renderLockBox(); } return; }
+    say('Confirm with your fingerprint or screen lock. Your phone may ask twice.');
+    const t = await Vault.setBiometric();
+    toast(t === 'gate' ? 'Lock is on. On this browser it guards the screen only.' : 'Lock is on'); resealAll();
+  } catch (e) { say(e && e.name === 'NotAllowedError' ? 'Not set up: it was cancelled. Tap again to retry.' : 'Not set up: ' + errText(e)); if (Vault.lockType()) resealAll(); }
+  finally { lockSetting = false; if ($('lockBox')) renderLockBox(); renderLockNudge(); }
+}
+// on the home screen, as long as no lock is set: a red line that sets it in one tap
+function renderLockNudge() { const n = $('lockNudge'); if (n) n.hidden = !!Vault.lockType() || locked || passive || !Vault.isOpen(); }
+$('lockNudge').addEventListener('click', () => lockWithScreenLock(t => toast(t)));
 
 // ---------- re-encryption after a key change ----------
 // Every stored record is read and, if it still sits under an older key, written again under the

@@ -19,6 +19,7 @@ function snippet(e) {
 }
 function renderHome() {
   if (!entriesLoaded) return;
+  if (typeof renderLockNudge === 'function') renderLockNudge();
   renderFolderRow();
   const list = $('list'), all = live().filter(e => !pendingDel.has(e.id)), q = searchQ.trim().toLowerCase();
   $('searchRow').hidden = all.length < 4 && !q;

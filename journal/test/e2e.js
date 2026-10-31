@@ -217,8 +217,15 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check(true, 'retry succeeded');
   await page.click('#entryBack');
 
-  // 6. PIN lock: set, relock (restart), unlock
+  // 6. PIN lock: set, relock (restart), unlock; the "not locked yet" line goes away once a lock is set
+  await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await page.isVisible('#lockNudge'), 'home says the journal is not locked yet');
+  // headless Chromium has no fingerprint: the tap opens the menu straight at the password form
+  await page.click('#lockNudge'); await page.waitForSelector('#pin1', { timeout: 5000 }).catch(() => {});
+  check(await page.isVisible('#sheet.open') && await page.isVisible('#pin1'), 'without a fingerprint the tap leads to the password form');
+  await page.evaluate(() => back()); await sleep(400);
   await page.evaluate(() => journalDebug.Vault.setPin('langes passwort 123'));
+  await page.evaluate(() => renderLockNudge()); check(!(await page.isVisible('#lockNudge')), 'the line is gone once the lock is on');
   await page.evaluate(() => journalDebug.relock());
   await page.waitForFunction(() => window.journalDebug && journalDebug.locked && document.getElementById('lock').hidden === false, null, { timeout: 15000 });
   check(await page.evaluate(() => !journalDebug.Vault.isOpen()), 'after the restart the key is not in memory');

@@ -226,6 +226,8 @@ See `README.md`.
 
 ## History
 
+- v18 (2026-10-31): as long as no lock is set, a red line on the home screen sets it in one tap
+  (fingerprint or the phone's screen lock: pattern, PIN, face); App lock moved to the top of the menu.
 - v17 (2026-10-30): the entry's date and time can be changed (date chip in the entry, the phone's
   own picker), for memos added afterwards; the list re-sorts, the date travels in backup and cloud.
 - v16 (2026-10-30): Save button in the entry; stopping dictation keeps the last phrase that was
