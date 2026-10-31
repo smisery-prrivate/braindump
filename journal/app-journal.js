@@ -233,7 +233,8 @@ function renderEntry() {
   $('noteText').addEventListener('input', () => { if (dictOn && !clipRec) { stopDictation(); return; } clearTimeout(textTimer); textTimer = setTimeout(commitText, 500); });
   $('noteText').addEventListener('blur', commitText);
   $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : settings.engine === 'keyboard' ? (nt.focus(), keyboardHint()) : startDictation());
-  $('claudeBtn').addEventListener('click', () => { commitTitle(); commitText(); if (!entryText(e)) { toast('Nothing to send yet.'); return; } openInClaude(e); });
+  // Claude: dictation stops first (its text is only stored then); an empty entry opens a new chat to talk in
+  $('claudeBtn').addEventListener('click', () => { if (dictOn) stopDictation(); commitTitle(); commitText(); if (entryText(e)) openInClaude(e); else openClaude(''); });
 }
 
 // ---------- dictation into the note, with the phone's own speech recognition ----------
@@ -365,7 +366,7 @@ $('entrySave').addEventListener('click', async () => {
 });
 $('entryMore').addEventListener('click', () => {
   const e = curEntry; if (!e) return;
-  commitTitle(); commitText();
+  if (dictOn) stopDictation(); commitTitle(); commitText();
   const btns = [];
   if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) });
   if (e.segs && e.segs.length) btns.push({ label: 'Share the audio', fn: () => shareAudio(e) });

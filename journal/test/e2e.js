@@ -303,6 +303,15 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p4.click('#entrySave'); await p4.waitForSelector('#home:not([hidden])'); await sleep(300);
   check(await p4.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.text.endsWith('getippt') && e.text.includes('letzter Satz vorlaeufig'); }), 'typing stops dictation and keeps dictated and typed text');
 
+  // Claude while dictating: dictation stops and the dictated text goes along
+  await p4.evaluate(() => { window.__claudeQ = null; window.openClaude = q => { window.__claudeQ = q; }; });
+  await p4.click('#recBtn'); await p4.waitForSelector('#noteText'); await sleep(600);
+  await p4.click('#claudeBtn'); await sleep(300);
+  check(await p4.evaluate(() => typeof window.__claudeQ === 'string' && window.__claudeQ.includes('letzter Satz vorlaeufig') && !dictOn), 'Claude while dictating stops dictation and sends the dictated text');
+  await p4.click('#entryBack'); await p4.waitForSelector('#home:not([hidden])');
+  await p4.click('#noteBtn'); await p4.waitForSelector('#noteText'); await p4.click('#claudeBtn'); await sleep(200);
+  check(await p4.evaluate(() => window.__claudeQ === ''), 'Claude on an empty entry opens a new chat');
+
   console.log('\nerrors:', errors.length ? errors : 'none');
   if (errors.length) fails++;
   console.log(fails ? '\n' + fails + ' FAILURES' : '\nALL PASSED');
