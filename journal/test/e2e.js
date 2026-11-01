@@ -356,6 +356,26 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p6.click('#recBtn'); await p6.waitForSelector('#noteText'); await sleep(1500);
   check(await p6.evaluate(() => dictOn && !dictAudio), 'next dictation on this phone writes text only');
   await browser2.close();
+  // a phone where the recognition takes the microphone and the recording beside it stays silent
+  // (what happened before on Android: text came, the audio played nothing): no silent audio is kept
+  const wav0 = require('path').join(require('os').tmpdir(), 'journal-silence.wav');
+  { const sr = 16000, n = sr * 30, buf = Buffer.alloc(44 + n * 2);
+    buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVEfmt ', 8); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
+    require('fs').writeFileSync(wav0, buf); }
+  const browser3 = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-audio-capture=' + wav0, '--autoplay-policy=no-user-gesture-required'] });
+  const ctx7 = await browser3.newContext({ viewport: { width: 400, height: 800 } }); await ctx7.grantPermissions(['microphone']);
+  await ctx7.addInitScript(fakeSR, 'Text kommt aber die Aufnahme ist stumm');
+  const p7 = await ctx7.newPage(); p7.on('pageerror', e => errors.push('p7 pageerror: ' + e.message));
+  await p7.goto(BASE); await p7.waitForFunction(() => window.journalDebug && journalDebug.entries);
+  await p7.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
+  await p7.click('#recBtn'); await p7.waitForSelector('#noteText');
+  await p7.waitForFunction(() => localStorage.getItem('journal-dict-voice') === 'no', null, { timeout: 15000 }).catch(() => {}); await sleep(800);
+  const f7 = await p7.evaluate(() => ({ mode: localStorage.getItem('journal-dict-voice'), dict: dictOn, voice: !!dictAudio, toast: document.getElementById('toast').textContent }));
+  await p7.click('#dictBtn'); await sleep(1500);
+  const e7 = await p7.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); return { segs: e.segs.length, text: e.text, parts: 0 }; });
+  console.log('silent recording', JSON.stringify(f7), JSON.stringify(e7));
+  check(f7.mode === 'no' && f7.dict && !f7.voice && e7.segs === 0 && e7.text.includes('Aufnahme ist stumm') && !(await p7.isVisible('#playBtn')), 'silent recording beside the recognition: noticed, no silent audio kept, the text stays');
+  await browser3.close();
 
   console.log('\nerrors:', errors.length ? errors : 'none');
   if (errors.length) fails++;
