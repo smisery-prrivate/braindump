@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ZeitTür</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#1f2a44">
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #fff; --ink: #1f2a44; --muted: #6b7280;
+    --accent: #1f2a44; --warn: #c0392b; --ok: #2e7d32; --line: #e5e3de;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151f; --card: #1b2130; --ink: #e8eaf0; --muted: #9aa3b5; --accent: #f2b84b; --line: #2a3142; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 12px 16px 8px; border-bottom: 1px solid var(--line); }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  h1 { font-size: 20px; margin: 0; }
+  #clock { font-variant-numeric: tabular-nums; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--card); }
+  #clock.low { background: var(--warn); color: #fff; }
+  form { display: flex; gap: 8px; margin-top: 10px; }
+  input { flex: 1; min-width: 0; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  button { font: inherit; padding: 10px 14px; border-radius: 10px; border: 0; background: var(--accent); color: var(--bg); cursor: pointer; }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  main { padding: 12px 16px 40px; max-width: 760px; margin: 0 auto; }
+  #banner { display: none; margin: 8px 0 0; padding: 8px 12px; border-radius: 10px; background: var(--warn); color: #fff; }
+  #playerWrap { display: none; margin-bottom: 12px; }
+  #playerBox { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
+  #playerBox iframe, #player { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #nowTitle { margin: 8px 0 0; font-weight: 600; }
+  .result { display: flex; gap: 10px; padding: 8px; margin: 8px 0; background: var(--card); border-radius: 12px; cursor: pointer; }
+  .result img { width: 140px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
+  .result .t { font-weight: 600; font-size: 15px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .result .c { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .card { background: var(--card); border-radius: 12px; padding: 14px; margin: 12px 0; }
+  .muted { color: var(--muted); font-size: 14px; }
+  #blocked { display: none; text-align: center; padding: 48px 8px; }
+  #blocked .big { font-size: 64px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+  .row label { flex: 1; }
+  .row input { max-width: 120px; }
+  code { background: var(--bg); padding: 2px 6px; border-radius: 6px; user-select: all; word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>ZeitTür</h1>
+    <span id="clock">10:00</span>
+  </div>
+  <form id="search">
+    <input id="q" type="search" placeholder="YouTube durchsuchen oder Link einfügen" autocomplete="off" enterkeyhint="search">
+    <button type="submit">Los</button>
+  </form>
+  <div id="banner"></div>
+</header>
+
+<main>
+  <section id="blocked">
+    <div class="big">⏱</div>
+    <h2>Zeit für heute aufgebraucht</h2>
+    <p class="muted">Ab morgen gibt es wieder <span id="budgetText">10</span> Minuten.</p>
+  </section>
+
+  <section id="playerWrap">
+    <div id="playerBox"><div id="player"></div></div>
+    <p id="nowTitle"></p>
+  </section>
+
+  <section id="results"></section>
+
+  <section id="setupHint" class="card" style="display:none">
+    <b>Suche einrichten</b>
+    <p class="muted">Für die Suche brauchst du einen kostenlosen YouTube-API-Schlüssel (unten in den Einstellungen).
+      Ohne Schlüssel kannst du YouTube-Links einfügen oder über „Teilen“ hierher schicken.</p>
+  </section>
+
+  <details class="card" id="settings">
+    <summary>Einstellungen</summary>
+
+    <div class="row">
+      <label for="budget">Minuten pro Tag</label>
+      <input id="budget" type="number" min="0" max="600" inputmode="numeric">
+      <button class="ghost" id="saveBudget" type="button">OK</button>
+    </div>
+    <p class="muted" id="budgetInfo">Weniger wirkt sofort, mehr erst ab morgen.</p>
+
+    <div class="row">
+      <label for="apikey">YouTube-API-Schlüssel</label>
+    </div>
+    <div class="row">
+      <input id="apikey" type="password" placeholder="AIza…" style="max-width:none" autocomplete="off">
+      <button class="ghost" id="saveKey" type="button">Speichern</button>
+    </div>
+    <p class="muted">Bleibt nur auf diesem Gerät. So bekommst du ihn: console.cloud.google.com, Projekt anlegen,
+      „YouTube Data API v3“ aktivieren, unter Anmeldedaten einen API-Schlüssel erstellen.</p>
+
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <b>Die Tür abschließen</b>
+    <p class="muted">Damit YouTube nur noch über die ZeitTür geht, in Brave <code>brave://adblock</code> öffnen
+      und unter „Eigene Filter“ diese zwei Zeilen eintragen:</p>
+    <p><code>||youtube.com^$document</code><br><code>||youtu.be^$document</code></p>
+    <p class="muted">Das sperrt youtube.com direkt in Brave. Die Videos hier laufen über youtube-nocookie.com und
+      sind davon nicht betroffen. Die YouTube-App in Digitales Wohlbefinden auf 1 Minute stellen.</p>
+  </details>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  const WARN_SECONDS = 5 * 60;
+  const $ = id => document.getElementById(id);
+
+  // ---------- Speicher (alles nur lokal) ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('zt_' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('zt_' + k, JSON.stringify(v)); } catch {} },
+    del(k) { try { localStorage.removeItem('zt_' + k); } catch {} },
+  };
+  const today = () => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  };
+
+  function budgetMinutes() {
+    const pending = store.get('pending', null);
+    if (pending && pending.date < today()) {
+      store.set('budget', pending.minutes);
+      store.del('pending');
+    }
+    return store.get('budget', 10);
+  }
+  function used() {
+    const u = store.get('used', { date: today(), s: 0 });
+    return u.date === today() ? u.s : 0;
+  }
+  function addSecond() { store.set('used', { date: today(), s: used() + 1 }); }
+  const remaining = () => Math.max(0, budgetMinutes() * 60 - used());
+  const fmt = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+
+  // ---------- Anzeige ----------
+  const warned = new Set();
+  function render() {
+    const rest = remaining();
+    $('clock').textContent = fmt(rest);
+    $('clock').classList.toggle('low', rest <= WARN_SECONDS);
+    $('budgetText').textContent = budgetMinutes();
+    const blocked = rest <= 0;
+    $('blocked').style.display = blocked ? 'block' : 'none';
+    $('search').style.display = blocked ? 'none' : 'flex';
+    if (blocked) {
+      $('results').replaceChildren();
+      $('setupHint').style.display = 'none';
+      $('banner').style.display = 'none';
+    }
+  }
+
+  function warn(text) {
+    $('banner').textContent = text;
+    $('banner').style.display = 'block';
+    if (navigator.vibrate) navigator.vibrate(400);
+  }
+
+  // ---------- Player ----------
+  let player = null, playerReady = false, pendingVideo = null;
+
+  window.onYouTubeIframeAPIReady = () => {
+    player = new YT.Player('player', {
+      host: 'https://www.youtube-nocookie.com',
+      playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => { playerReady = true; if (pendingVideo) play(pendingVideo.id, pendingVideo.title); },
+      },
+    });
+  };
+  const api = document.createElement('script');
+  api.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(api);
+
+  function play(id, title) {
+    if (remaining() <= 0) { render(); return; }
+    $('playerWrap').style.display = 'block';
+    $('nowTitle').textContent = title || '';
+    if (!playerReady) { pendingVideo = { id, title }; return; }
+    pendingVideo = null;
+    player.loadVideoById(id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function stopPlayer() {
+    try { if (playerReady) player.stopVideo(); } catch {}
+    $('playerWrap').style.display = 'none';
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+
+  // Jede Sekunde: zaehlen, solange ein Video sichtbar laeuft.
+  setInterval(() => {
+    const playing = playerReady && player.getPlayerState && player.getPlayerState() === 1;
+    if (playing && !document.hidden) {
+      addSecond();
+      const rest = remaining();
+      if (rest <= WARN_SECONDS && !warned.has(today() + '5')) {
+        warned.add(today() + '5');
+        warn('Noch ' + Math.max(1, Math.ceil(rest / 60)) + ' Minuten YouTube heute.');
+      }
+      if (rest <= 60 && !warned.has(today() + '1')) {
+        warned.add(today() + '1');
+        warn('Letzte Minute.');
+      }
+      if (rest <= 0) stopPlayer();
+    }
+    render();
+  }, 1000);
+
+  // Video im Hintergrund nicht weiterlaufen lassen (wird dann nicht gezaehlt).
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && playerReady) { try { player.pauseVideo(); } catch {} }
+  });
+
+  // ---------- Suche und Links ----------
+  function videoIdFrom(text) {
+    const m = String(text).match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : null;
+  }
+
+  async function search(q) {
+    const key = store.get('key', '');
+    if (!key) { $('setupHint').style.display = 'block'; $('settings').open = true; return; }
+    $('setupHint').style.display = 'none';
+    const url = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=15&safeSearch=none'
+      + '&q=' + encodeURIComponent(q) + '&key=' + encodeURIComponent(key);
+    const box = $('results');
+    box.replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: 'Suche…' }));
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) throw new Error((data.error && data.error.message) || res.status);
+      box.replaceChildren(...(data.items || []).map(resultRow));
+      if (!data.items || !data.items.length) box.replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: 'Nichts gefunden.' }));
+    } catch (err) {
+      box.replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: 'Suche fehlgeschlagen: ' + err.message }));
+    }
+  }
+
+  // Texte von YouTube nur als Text einsetzen, nie als HTML.
+  function decode(s) { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; }
+  function resultRow(item) {
+    const id = item.id && item.id.videoId;
+    const sn = item.snippet || {};
+    const row = document.createElement('div');
+    row.className = 'result';
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = '';
+    img.src = 'https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/mqdefault.jpg';
+    const txt = document.createElement('div');
+    const t = document.createElement('div'); t.className = 't'; t.textContent = decode(sn.title || '');
+    const c = document.createElement('div'); c.className = 'c'; c.textContent = decode(sn.channelTitle || '');
+    txt.append(t, c);
+    row.append(img, txt);
+    row.addEventListener('click', () => play(id, t.textContent));
+    return row;
+  }
+
+  $('search').addEventListener('submit', e => {
+    e.preventDefault();
+    const q = $('q').value.trim();
+    if (!q || remaining() <= 0) return;
+    $('q').blur();
+    const id = videoIdFrom(q);
+    if (id) play(id, ''); else search(q);
+  });
+
+  // Ueber "Teilen" oder ?v= geoeffnet
+  const params = new URLSearchParams(location.search);
+  const shared = [params.get('v') && 'youtu.be/' + params.get('v'), params.get('url'), params.get('text'), params.get('title')]
+    .filter(Boolean).join(' ');
+  const sharedId = videoIdFrom(shared);
+  if (sharedId) play(sharedId, params.get('title') || '');
+
+  // ---------- Einstellungen ----------
+  $('budget').value = budgetMinutes();
+  function showPending() {
+    const p = store.get('pending', null);
+    $('budgetInfo').textContent = p
+      ? 'Ab morgen: ' + p.minutes + ' Minuten. Weniger wirkt sofort, mehr erst ab morgen.'
+      : 'Weniger wirkt sofort, mehr erst ab morgen.';
+  }
+  showPending();
+  $('saveBudget').addEventListener('click', () => {
+    const m = parseInt($('budget').value, 10);
+    if (!(m >= 0 && m <= 600)) return;
+    if (m <= budgetMinutes()) { store.set('budget', m); store.del('pending'); }
+    else store.set('pending', { minutes: m, date: today() });
+    $('budget').value = budgetMinutes();
+    showPending();
+    render();
+  });
+  $('apikey').value = store.get('key', '') ? '••••••••' : '';
+  $('saveKey').addEventListener('click', () => {
+    const v = $('apikey').value.trim();
+    if (!v || v.startsWith('•')) return;
+    store.set('key', v);
+    $('apikey').value = '••••••••';
+    $('setupHint').style.display = 'none';
+  });
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  render();
+})();
+</script>
+</body>
+</html>
