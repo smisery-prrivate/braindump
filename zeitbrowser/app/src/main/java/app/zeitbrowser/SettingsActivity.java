@@ -21,6 +21,7 @@ public class SettingsActivity extends Activity {
 
     private Limits limits;
     private LinearLayout list;
+    private Button guardBtn;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,6 +38,11 @@ public class SettingsActivity extends Activity {
         col.addView(text("Tageslimits", 24, true));
         col.addView(text("Senken und neue Limits wirken sofort. Erhöhen und Löschen wirken erst ab morgen, "
                 + "damit du dich nicht im Moment selbst austrickst.", 14, false));
+
+        guardBtn = new Button(this);
+        guardBtn.setOnClickListener(v -> startActivity(
+                new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        col.addView(guardBtn);
 
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -74,10 +80,18 @@ public class SettingsActivity extends Activity {
         col.addView(add);
 
         setContentView(scroll);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
         refresh();
     }
 
     private void refresh() {
+        guardBtn.setText(GuardService.isEnabled(this)
+                ? "Wächter aktiv (Brave, YouTube-App)"
+                : "Wächter einschalten (sonst gilt das Limit nicht in Brave)");
         list.removeAllViews();
         Map<String, Integer> all = limits.all();
         Map<String, Integer> pending = limits.pending();

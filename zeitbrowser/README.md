@@ -13,8 +13,14 @@ Kleiner Android-Browser mit Tageslimits pro Domain (Standard: youtube.com, 10 Mi
 GitHub baut die APK bei jedem Push automatisch. Download: Releases, "ZeitBrowser (neueste Version)", `ZeitBrowser.apk`.
 Beim ersten Mal Installation aus unbekannten Quellen erlauben.
 
-## Damit es kein Schlupfloch gibt
+## Wächter für Brave und die YouTube-App
 
-Die App hilft nur, wenn YouTube woanders nicht frei erreichbar ist:
-- YouTube-App in Digitales Wohlbefinden auf 1 Minute setzen oder deinstallieren.
-- In Brave youtube.com blockieren, z. B. über einen eigenen Filter `||youtube.com^` in den Shields-Einstellungen (Inhaltsfilter).
+Der Wächter (eine Android-Bedienungshilfe) zählt limitierte Seiten auch in Brave, Chrome, Firefox,
+Samsung Internet und anderen Browsern sowie in der YouTube-App. Alles teilt sich dasselbe Tagesbudget.
+Ist es aufgebraucht, holt er die Sperrseite nach vorne und das Video stoppt.
+
+Einschalten (einmalig):
+1. App-Info von ZeitBrowser öffnen, oben rechts ⋮, "Eingeschränkte Einstellungen zulassen" (Android 13+, weil die App nicht aus dem Play Store kommt).
+2. Einstellungen, Bedienungshilfen, Installierte Apps, "ZeitBrowser Wächter" einschalten.
+
+Der Wächter liest nur die Adressleiste der Browser. Gespeichert werden nur Minuten pro Domain, nichts verlässt das Handy.

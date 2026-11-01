@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guard_description">Zählt die Zeit auf limitierten Seiten auch in Brave, Chrome und anderen Browsern sowie in der YouTube-App, und sperrt sie, wenn das Tageslimit aufgebraucht ist. Es werden keine Daten gespeichert außer den Minuten pro Seite, und nichts verlässt das Handy.</string>
+    <string name="guard_label">ZeitBrowser Wächter</string>
+</resources>

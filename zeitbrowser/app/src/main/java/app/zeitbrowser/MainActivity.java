@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -36,7 +39,9 @@ import java.util.Set;
 
 public class MainActivity extends Activity {
 
+    static final String EXTRA_BLOCKED = "blocked";
     private static final String START = "zeitbrowser://start";
+    private static final String GUARD = "zeitbrowser://guard";
     private static final String PAUSE_MEDIA_JS =
             "document.querySelectorAll('video,audio').forEach(function(m){m.pause();});";
 
@@ -53,6 +58,7 @@ public class MainActivity extends Activity {
     private WebChromeClient.CustomViewCallback fullscreenCallback;
     private boolean running;
     private boolean clearHistoryWhenLoaded;
+    private boolean onStartPage;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -69,8 +75,40 @@ public class MainActivity extends Activity {
         limits = new Limits(this);
         buildUi();
         setupWeb();
+        if (handleBlockedIntent(getIntent())) return;
         if (savedInstanceState != null && web.restoreState(savedInstanceState) != null) return;
         showStart();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleBlockedIntent(intent);
+    }
+
+    /** Der Waechter hat uns aus einer anderen App heraus geoeffnet. */
+    private boolean handleBlockedIntent(Intent intent) {
+        String d = intent == null ? null : intent.getStringExtra(EXTRA_BLOCKED);
+        if (d == null) return false;
+        intent.removeExtra(EXTRA_BLOCKED);
+        stopOtherMedia();
+        showBlocked(d);
+        return true;
+    }
+
+    /** Audio-Fokus holen: Brave und die YouTube-App halten dann ihr Video an. */
+    private void stopOtherMedia() {
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (am == null) return;
+        AudioFocusRequest req = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                        .build())
+                .setOnAudioFocusChangeListener(change -> { })
+                .build();
+        am.requestAudioFocus(req);
     }
 
     private int dp(int v) {
@@ -151,6 +189,10 @@ public class MainActivity extends Activity {
                     showStart();
                     return true;
                 }
+                if (GUARD.equals(uri.toString())) {
+                    startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                    return true;
+                }
                 // Keine Spruenge in andere Apps (z. B. YouTube-App), damit nichts am Limit vorbei laeuft.
                 if (!"http".equals(scheme) && !"https".equals(scheme)) return true;
                 String d = limits.match(uri.getHost());
@@ -163,6 +205,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                if (url != null && url.startsWith("http")) onStartPage = false;
                 updateBar(url);
                 checkBlocked(url);
             }
@@ -294,6 +337,7 @@ public class MainActivity extends Activity {
         web.evaluateJavascript(PAUSE_MEDIA_JS, null);
         web.stopLoading();
         banner.setVisibility(View.GONE);
+        onStartPage = false;
         String html = page(
                 "<div class='big'>⏱</div>"
                         + "<h1>Zeit aufgebraucht</h1>"
@@ -308,6 +352,7 @@ public class MainActivity extends Activity {
 
     private void showStart() {
         exitFullscreen();
+        onStartPage = true;
         StringBuilder rows = new StringBuilder();
         for (Map.Entry<String, Integer> e : limits.all().entrySet()) {
             String d = e.getKey();
@@ -320,7 +365,11 @@ public class MainActivity extends Activity {
                     .append(" von ").append(e.getValue()).append(" Min.</span></a>");
         }
         if (rows.length() == 0) rows.append("<p>Noch keine Limits. Tippe oben auf ⏱.</p>");
-        String html = page("<h1>ZeitBrowser</h1><p class='sub'>Heute übrig:</p>" + rows
+        String guard = GuardService.isEnabled(this)
+                ? "<p class='ok'>✓ Wächter aktiv: gilt auch in Brave und der YouTube-App.</p>"
+                : "<a class='row warn' href='" + GUARD + "'><span><b>Wächter ist aus.</b> Brave und die YouTube-App "
+                + "sind dann nicht begrenzt. Tippen zum Einschalten: Bedienungshilfen, ZeitBrowser Wächter.</span></a>";
+        String html = page("<h1>ZeitBrowser</h1>" + guard + "<p class='sub'>Heute übrig:</p>" + rows
                 + "<p class='hint'>Seiten ohne Limit kannst du oben ganz normal eingeben.</p>");
         web.loadDataWithBaseURL("about:blank", html, "text/html", "utf-8", null);
         updateBar("");
@@ -333,7 +382,7 @@ public class MainActivity extends Activity {
                 + "h1{font-size:24px;margin:8px 0}.sub{color:#666}.big{font-size:64px;text-align:center}"
                 + ".row{display:flex;justify-content:space-between;gap:12px;padding:14px;margin:8px 0;background:#fff;"
                 + "border-radius:12px;text-decoration:none;color:inherit;box-shadow:0 1px 3px rgba(0,0,0,.08)}"
-                + ".ok{color:#2e7d32}.off{color:#c0392b}.hint{color:#888;font-size:14px;margin-top:24px}"
+                + ".ok{color:#2e7d32}.warn{background:#fdecea;color:#8a1c12}.off{color:#c0392b}.hint{color:#888;font-size:14px;margin-top:24px}"
                 + "a{color:#1f5fbf}</style></head><body>" + body + "</body></html>";
     }
 
@@ -347,8 +396,8 @@ public class MainActivity extends Activity {
         }
         String url = web.getUrl();
         if (url == null || !url.startsWith("http")) {
-            // Startseite neu zeichnen, falls sich Limits geaendert haben.
-            if (web.getUrl() != null) showStart();
+            // Startseite neu zeichnen, falls sich Limits oder der Waechter geaendert haben.
+            if (onStartPage) showStart();
         } else {
             checkBlocked(url);
         }
