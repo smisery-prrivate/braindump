@@ -51,7 +51,7 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   the entry.
 - **Date.** The date chip in the entry opens the phone's date and time picker: a memo added
   afterwards gets the day it belongs to and moves to its place in the list.
-- **Save.** The entry has a Save button: it stores, says "Saved" and returns to the list. Text is
+- **Save.** The entry has a Save button: it stores and says "Saved"; you stay in the entry. Text is
   also stored on its own while typing, on Back and when the app goes to the background.
 - **Several at once.** "Select" in the header (or a long press) turns
   the list into a pick list: a tap picks, the bar at the bottom deletes all picked entries (one
@@ -226,6 +226,11 @@ See `README.md`.
 
 ## History
 
+- v20 (2026-11-01): dictation keeps the voice: the same microphone is recorded while the phone
+  writes (newer Chrome feeds the recognition from the recording), stored encrypted as the entry's
+  audio; where a phone cannot do both it notices, keeps the text going and remembers it. Player
+  with 10 s back and on, speeds 0.5 to 2. Save stays in the entry. Dictated text is stored every
+  few seconds while dictating.
 - v19 (2026-10-31): Claude button while dictating sent nothing ("Nothing to send yet"): dictation
   now stops first and its text goes along; an empty entry opens a new Claude chat.
 - v18 (2026-10-31): as long as no lock is set, a red line on the home screen sets it in one tap

@@ -127,10 +127,13 @@
   .player .row { display: flex; align-items: center; gap: 10px; }
   .player .play { width: 52px; height: 52px; border-radius: 26px; border: none; background: var(--accent); color: #fff; font-size: 20px; flex: none; display: flex; align-items: center; justify-content: center; }
   .player .play:disabled { opacity: .5; }
+  .player .skip { width: 44px; height: 44px; border-radius: 22px; border: 1px solid var(--line); background: transparent; color: var(--accent); font-size: 13px; font-weight: 700; flex: none; padding: 0; }
+  .player .row input[type=range] { min-width: 0; flex: 1; }
+  .linkbtn { border: none; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; text-decoration: underline; }
   .player input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
   .player .times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 4px; }
-  .player .speed { display: flex; gap: 6px; margin-top: 8px; }
-  .player .speed button { height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .player .speed { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .player .speed button { height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font-size: 13px; font-weight: 600; color: var(--muted); }
   .player .speed button.on { background: var(--accent-bg); color: var(--accent); border-color: transparent; }
   .player .pstate { font-size: 13px; color: var(--muted); margin-top: 6px; min-height: 16px; }
   .txcard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }

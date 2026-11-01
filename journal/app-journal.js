@@ -204,7 +204,7 @@ function keyboardHint() { const t = $('noteText'); if (t) t.placeholder = 'Tap t
 function leaveEntry() {
   closeLightbox(); if (dictOn) stopDictation(); commitTitle(); commitText(); stopPlayer();
   const e = curEntry; curEntry = null;
-  if (e && !e.deleted && !(e.text || '').trim() && !(e.title || '').trim() && !(e.segs && e.segs.length) && !(e.pics && e.pics.length) && e.state !== 'rec') { e.deleted = true; e.del_at = Date.now(); persist(e); renderHome(); }      // an entry left empty is not kept
+  if (e && !e.deleted && !(e.text || '').trim() && !(e.title || '').trim() && !(e.segs && e.segs.length) && !(e.pics && e.pics.length) && e.state !== 'rec' && !pendingSegList.some(s => s.entry === e.id && !s.drop)) { e.deleted = true; e.del_at = Date.now(); persist(e); renderHome(); }      // an entry left empty is not kept
 }
 function renderEntry() {
   const e = curEntry; if (!e || current() !== 'entry') return;
@@ -219,9 +219,9 @@ function renderEntry() {
   commitText();                                                                                         // nothing typed is lost to a redraw                               // never redraw under a moving cursor
   let html = '';
   if (segs.length) {
-    html += '<div class="player"><div class="row"><button class="play" id="playBtn" aria-label="Play">▶</button><input type="range" id="seek" min="0" max="' + Math.max(1, Math.round(entryDur(e))) + '" value="0" step="250"></div>' +
+    html += '<div class="player"><div class="row"><button class="skip" id="skipBack" aria-label="10 seconds back">↺10</button><button class="play" id="playBtn" aria-label="Play">▶</button><button class="skip" id="skipFwd" aria-label="10 seconds on">10↻</button><input type="range" id="seek" min="0" max="' + Math.max(1, Math.round(entryDur(e))) + '" value="0" step="250"></div>' +
       '<div class="times"><span id="tCur">0:00</span><span id="tTot">' + esc(fmtDur(entryDur(e))) + '</span></div>' +
-      '<div class="speed">' + [1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
+      '<div class="speed">' + [0.5, 0.75, 1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
       '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
   }
   html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate">' + (dictOn ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write, or tap Dictate…">' + esc(dictOn && dictEntry === e ? dictText('') : e.text || '') + '</textarea></div>';
@@ -251,30 +251,132 @@ function dictLang() { const l = settings.lang; return l === 'de' ? 'de-DE' : l =
 // the interim words repeat the running session's words: overlaid, never appended
 const dictText = interim => { const t = joinOverlap(joinOverlap(dictFinal, dictSess), interim || ''); return dictBase + t + (interim ? ' ' : ''); };
 function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictText(interim); nt.scrollTop = nt.scrollHeight; }
-function startDictation() {
-  const e = curEntry; if (!e || locked || passive || recording) return;
+async function startDictation() {
+  const e = curEntry; if (!e || locked || passive || recording || dictOn) return;
   if (settings.engine !== 'phone') { startClipDictation(e); return; }
   if (!SR) { popup('No dictation here', 'This browser has no built-in speech recognition. Use Chrome or Safari, the keyboard\'s microphone key, or choose a key or the cloud under Menu, Transcription.', [{ label: 'OK', cls: 'primary' }]); return; }
   commitText(); keepAwake();
   const cur = (e.text || '').replace(/\s+$/, '');
   dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictSess = ''; dictEntry = e; dictOn = true;
   const b = $('dictBtn'); if (b) b.textContent = '■ Stop';
-  const run = () => {
-    if (!dictOn || curEntry !== e) return;
-    const r = new SR(); dictRec = r; dictSess = '';
-    r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
-    r.onresult = ev => {
-      // Android also lists the same utterance several times inside one event, each entry a little
-      // longer than the one before ("dies", "dies ist", "dies ist ein"): folded on their overlap
-      let finals = '', interim = '';
-      for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals = joinOverlap(finals, t); else interim = joinOverlap(interim, t); }
-      dictSess = finals; dictApply(interim);
-    };
-    r.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { stopDictation(); popup('Microphone', 'Journal has no permission to use the microphone for dictation. Allow it in the browser settings for this site.', [{ label: 'OK', cls: 'primary' }]); } };
-    r.onend = () => { if (dictRec !== r) return; dictRec = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = ''; if (dictOn) run(); };      // Android ends after every pause: on again at once
-    try { r.start(); } catch (err) { stopDictation(); }
+  const plan = dictVoicePlan();
+  if (plan !== 'no') await startDictVoice(e, plan);                 // the voice is recorded alongside, where the phone can
+  if (!dictOn || dictEntry !== e) { stopDictVoice(true); return; }
+  runDictSR(e);
+}
+// one recognition session after the other (Android ends one after every pause: on again at once)
+function runDictSR(e) {
+  if (!dictOn || curEntry !== e || dictRec) return;
+  const r = new SR(); dictRec = r; dictSess = '';
+  r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  r.onresult = ev => {
+    // Android also lists the same utterance several times inside one event, each entry a little
+    // longer than the one before ("dies", "dies ist", "dies ist ein"): folded on their overlap
+    let finals = '', interim = '';
+    for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals = joinOverlap(finals, t); else interim = joinOverlap(interim, t); }
+    if (dictAudio && (finals || interim).trim()) dictAudio.heard = true;
+    dictSess = finals; dictApply(interim); scheduleDictSave();
   };
-  run();
+  r.onerror = ev => {
+    const err = ev.error || '';
+    if (err === 'no-speech' || err === 'aborted') return;
+    if (dictAudio && !dictAudio.ok && !dictAudio.heard) { dictVoiceFailed('sr'); return; }      // recognition cannot hear beside the recording: the recording gives way
+    if (err === 'not-allowed' || err === 'service-not-allowed') { stopDictation(); popup('Microphone', 'Journal has no permission to use the microphone for dictation. Allow it in the browser settings for this site.', [{ label: 'OK', cls: 'primary' }]); }
+  };
+  r.onend = () => { if (dictRec !== r) return; dictRec = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = ''; if (dictOn) runDictSR(e); };
+  try {
+    const v = dictAudio;
+    if (v && v.mode === 'track') { const t = v.track.clone(); v.clones.push(t); r.start(t); } else r.start();
+  } catch (err) { dictRec = null; if (dictAudio && !dictAudio.ok) { dictVoiceFailed('sr'); return; } stopDictation(); }
+}
+// the dictated text is stored every few seconds while dictating, so a killed app keeps it
+let dictSaveTimer = null;
+function scheduleDictSave() {
+  if (dictSaveTimer) return;
+  dictSaveTimer = setTimeout(() => { dictSaveTimer = null; const e = dictEntry; if (!dictOn || !e) return; const t = (dictBase + joinOverlap(dictFinal, dictSess)).replace(/\s+$/, ''); if (t !== (e.text || '')) { e.text = t; persist(e); } }, 3000);
+}
+
+// ---------- the voice kept with dictation ----------
+// While the phone's recognition writes, the same microphone is recorded and stored encrypted as
+// the entry's audio (playable, slower or faster). Newer Chrome feeds the recognition from the
+// recording itself (one microphone, two uses). Where the phone cannot do both, the app notices
+// (recognition hears nothing while there is voice, or the recording stays silent while words
+// come), gives the microphone back to the recognition and remembers it for this phone.
+const DICT_VOICE_KEY = 'journal-dict-voice';            // '' not known yet, 'track', 'both', 'no'
+const dictVoiceMode = () => { try { return localStorage.getItem(DICT_VOICE_KEY) || ''; } catch (e) { return ''; } };
+const setDictVoiceMode = m => { try { if (m) localStorage.setItem(DICT_VOICE_KEY, m); else localStorage.removeItem(DICT_VOICE_KEY); } catch (e) {} };
+let srTrack = null, dictAudio = null, dictAudioBusy = 0;
+// does the recognition take a recorded track? (asked with a wrong argument: only a browser that knows the form refuses it)
+function srTakesTrack() {
+  if (srTrack === null) { srTrack = false; try { if (SR && 'processLocally' in SR.prototype) { const p = new SR(); try { p.start({}); try { p.abort(); } catch (e) {} } catch (e) { srTrack = e instanceof TypeError; } } } catch (e) {} }
+  return srTrack;
+}
+function dictVoicePlan() {
+  if (!settings.dictVoice || !self.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return 'no';
+  const known = dictVoiceMode();
+  if (known === 'no' || known === 'both') return known;
+  return srTakesTrack() ? 'track' : 'both';
+}
+async function startDictVoice(e, mode) {
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: { ideal: 1 }, echoCancellation: false, noiseSuppression: true, autoGainControl: true } }); }
+  catch (err) { return; }                                                    // without the voice; the text still comes
+  const stopTracks = () => { for (const t of stream.getTracks()) { try { t.stop(); } catch (err) {} } };
+  if (!dictOn || dictEntry !== e) { stopTracks(); return; }
+  const mime = pickMime(); let r;
+  try { r = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : { audioBitsPerSecond: 48000 }); }
+  catch (err) { try { r = new MediaRecorder(stream); } catch (err2) { stopTracks(); return; } }
+  const taken = e.segs.map(g => g.i).concat(pendingSegList.filter(s => s.entry === e.id).map(s => s.i));
+  const seg = { id: uid(), i: taken.length ? Math.max(...taken) + 1 : 0, chunks: [], n: 0, start: Date.now(), pausedMs: 0, pausedAt: 0, mime: r.mimeType || mime || 'audio/webm', entry: e.id, done: false, dict: true, drop: false, voiced: 0 };
+  r.ondataavailable = ev => { if (!ev.data || !ev.data.size) return; const n = seg.n++; seg.chunks.push(ev.data); if (!seg.drop) partPut(seg.id, n, ev.data, { entry: seg.entry, i: seg.i, mime: seg.mime, dict: true }).catch(() => {}); };
+  let ended = false;
+  r.onstop = async () => {
+    if (ended) return; ended = true; stopTracks();
+    try { if (seg.drop) { const k = pendingSegList.indexOf(seg); if (k >= 0) pendingSegList.splice(k, 1); seg.done = true; await partsDel(seg.id).catch(() => {}); } else await finishSegment(seg); }
+    finally { dictAudioBusy--; }
+  };
+  try { r.start(CHUNK_MS); } catch (err) { stopTracks(); return; }
+  const v = dictAudio = { stream, track: stream.getAudioTracks()[0], rec: r, seg, mode, clones: [], heard: false, voiced: 0, silent: 0, ok: false, ctx: null, timer: null };
+  // the watch: is there voice in the recording, and does the recognition hear it?
+  try {
+    const ctx = v.ctx = new (self.AudioContext || self.webkitAudioContext)(); if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
+    const data = new Uint8Array(an.fftSize);
+    v.timer = setInterval(() => {
+      if (dictAudio !== v || ctx.state !== 'running') return;
+      an.getByteTimeDomainData(data); let sum = 0; for (let i = 0; i < data.length; i++) { const x = (data[i] - 128) / 128; sum += x * x; }
+      const rms = Math.sqrt(sum / data.length);
+      if (rms > 0.02) { v.voiced += 100; seg.voiced = v.voiced; }
+      if (rms < 0.002) v.silent += 100;
+      if (v.ok) return;
+      if (v.heard && v.voiced >= 1500) { v.ok = true; setDictVoiceMode(v.mode); return; }        // both work on this phone
+      if (!v.heard && v.voiced >= 5000) { dictVoiceFailed('sr'); return; }                       // voice in the recording, no words: recognition cannot hear
+      if (v.heard && !v.voiced && v.silent >= 4000) dictVoiceFailed('silent');                    // words, but the recording is silent
+    }, 100);
+  } catch (err) {}
+}
+// recognition and recording could not share the microphone: the recording stops (kept if it holds
+// voice), recognition starts again on its own, and the phone remembers what to try next time
+function dictVoiceFailed(kind) {
+  const v = dictAudio; if (!v) return;
+  setDictVoiceMode(v.mode === 'track' ? 'both' : 'no');
+  const kept = kind !== 'silent' && v.voiced >= 800;
+  stopDictVoice(kind === 'silent');
+  const r = dictRec; dictRec = null; if (r) { try { r.abort(); } catch (err) {} }
+  dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
+  const e = dictEntry;
+  if (dictOn && e) setTimeout(() => { if (dictOn && dictEntry === e && !dictRec) runDictSR(e); }, 400);      // the microphone is free again
+  toast(kind === 'silent' ? 'The voice could not be recorded while the phone writes. Dictation goes on as text.' : 'The phone could not write while it records. ' + (kept ? 'The voice so far is kept; dictation goes on as text.' : 'Dictation goes on as text.'));
+}
+function stopDictVoice(drop) {
+  const v = dictAudio; if (!v) return; dictAudio = null;
+  clearInterval(v.timer); if (v.ctx) { try { v.ctx.close(); } catch (err) {} }
+  for (const t of v.clones) { try { t.stop(); } catch (err) {} }
+  v.seg.drop = !!drop || v.voiced < 800;                 // nothing said: nothing kept
+  dictAudioBusy++; pendingSegList.push(v.seg);
+  if (v.rec.state === 'inactive') { v.rec.onstop(); return; }
+  try { v.rec.stop(); } catch (err) { v.rec.onstop(); }
+  setTimeout(() => v.rec.onstop(), 5000);                  // a recorder that never says "stopped"
 }
 // with a key or the cloud: a short clip is recorded and sent to the service, the text is appended
 let clipRec = null, clipStream = null, clipChunks = [];
@@ -308,6 +410,8 @@ function stopDictation() {
   if (!dictOn) return;
   if (clipRec) { dictOn = false; const c = clipRec; clipRec = null; clipStream = null; dictEntry = null; try { c.stop(); } catch (e) {} return; }
   dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
+  clearTimeout(dictSaveTimer); dictSaveTimer = null;
+  stopDictVoice(false);
   if (!recording) releaseWake();
   const e = dictEntry; dictEntry = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
   // what stands in the field is what is kept: on Android the last phrase is often still "interim"
@@ -338,7 +442,7 @@ function renderTxState() {
   if (s === 'busy') { msg = 'Transcribing… ' + done + ' of ' + segs.length + ' parts done; the text is added below.'; cls = 'busy'; }
   else if (s === 'fail') { const f = segs.find(g => g.st === 'fail'); msg = 'Transcription failed: ' + (f && f.err || 'unknown error') + (txFailUntil(e) ? ' · trying again ' + txFailUntil(e) : ''); cls = 'fail'; }
   else if (s === 'todo') msg = e.tx ? (txAvailable() ? 'Waiting to transcribe…' : settings.engine === 'phone' ? 'Stored audio needs a key or the cloud (Menu, Transcription).' : 'Set up transcription in the menu.') : 'Not transcribed; the recording is stored encrypted here.' + (settings.engine === 'phone' ? ' The phone only transcribes live while recording; a key or the cloud can do it afterwards.' : '');
-  else if (s === 'done') msg = segs.every(g => g.live) ? 'Transcribed live while recording; the text is below.' : 'Transcribed; the text is below.';
+  else if (s === 'done') msg = segs.every(g => g.live) ? 'Your voice, stored encrypted. The text below was written while you spoke.' : 'Transcribed; the text is below.';
   else if (s === 'off') msg = 'Audio only.';
   if (e.state === 'rec') { msg = 'Still recording.'; cls = ''; }
   el.textContent = msg; el.className = 'st ' + cls;
@@ -362,7 +466,6 @@ $('entrySave').addEventListener('click', async () => {
   const ok = await persist(e);
   if (!ok) return;                                                                      // persist already said why
   toast((e.text || '').trim() || (e.title || '').trim() || (e.segs && e.segs.length) || (e.pics && e.pics.length) ? 'Saved' : 'Nothing to save');
-  if (curEntry === e) back();
 });
 $('entryMore').addEventListener('click', () => {
   const e = curEntry; if (!e) return;
@@ -437,6 +540,8 @@ async function purgeEntryData(e) {
 function wirePlayer() {
   const btn = $('playBtn'); if (!btn) return;
   btn.addEventListener('click', togglePlay);
+  $('skipBack').addEventListener('click', () => skipBy(-10000));
+  $('skipFwd').addEventListener('click', () => skipBy(10000));
   const seek = $('seek');
   seek.addEventListener('input', () => { player.seeking = true; $('tCur').textContent = fmtDur(+seek.value); });
   seek.addEventListener('change', () => { player.seeking = false; seekTo(+seek.value); });
@@ -479,6 +584,14 @@ async function togglePlay() {
   if (player.loading) return;
   if (player.i < 0) { if (!(await loadSeg(e, 0, 0))) return; }
   if (player.audio.paused) { player.want = true; player.audio.play().catch(err => pState('Could not play: ' + errText(err))); } else { player.want = false; player.audio.pause(); }
+}
+// 10 seconds back or on, across parts
+function skipBy(d) {
+  const e = curEntry; if (!e || !e.segs.length) return;
+  const now = player.e === e && player.audio && player.i >= 0 ? segOffset(e, player.i) + player.audio.currentTime * 1000 : 0;
+  const to = Math.max(0, Math.min(entryDur(e) - 250, now + d));
+  const seek = $('seek'); if (seek) seek.value = Math.round(to); $('tCur').textContent = fmtDur(to);
+  seekTo(to);
 }
 async function seekTo(ms) {
   const e = curEntry; if (!e || !e.segs.length) return;

@@ -6,8 +6,10 @@ Concept and security model: [CONCEPT.md](CONCEPT.md).
 
 Without any set-up the app runs fully on the device. Microphone: record, for as long as you
 like; the audio stays encrypted and playable under the text. Pen: write. Inside an entry,
-Dictate adds text through the phone's own speech recognition (free, but on most Android phones
-it cannot run while the phone records, and it stops at every pause with a tone). Smoother and
+Dictate adds text through the phone's own speech recognition, and the voice is recorded alongside
+and kept as the entry's audio (play, 10 s back and on, 0.5 to 2 times speed). Newer Chrome feeds
+the recognition from that recording; a phone that cannot do both is noticed once and dictates
+text only (Menu, Transcription, "Try again"). Smoother and
 also free: engine "Keyboard microphone" in Menu, Transcription. The microphone then opens the
 text window with the keyboard up, and Gboard's voice typing listens: on the phone itself on
 newer phones, through pauses, without tones. For recordings that become

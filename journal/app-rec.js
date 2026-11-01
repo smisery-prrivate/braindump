@@ -115,7 +115,8 @@ async function finishSegment(seg) {
   try {
     await segPut(seg.id, blob, { entry: e.id, mime: seg.mime, size: blob.size, dur, i: seg.i });
     const liveText = typeof seg.liveRec === 'string' ? seg.liveRec : '';
-    const g = { id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: liveText, st: liveText ? 'done' : (settings.transcribe === 'off' && !e.tx ? 'off' : 'todo'), live: !!liveText, merged: false };
+    const g = seg.dict ? { id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: '', st: 'done', live: true, merged: true }      // the voice of a dictation: its text is in the entry already
+      : { id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: liveText, st: liveText ? 'done' : (settings.transcribe === 'off' && !e.tx ? 'off' : 'todo'), live: !!liveText, merged: false };
     e.segs.push(g); mergeSeg(e, g);
     e.segs.sort((a, b) => a.i - b.i); e.dur = entryDur(e);
     if (await persist(e)) await partsDel(seg.id); else throw new Error('the entry could not be saved');      // the parts stay until the entry names the segment
@@ -230,7 +231,7 @@ async function recoverRecordings() {
       if (!e || e.deleted || !blobs.length) { for (const k of ks) await idb.del('parts', k); continue; }
       const blob = new Blob(blobs, { type: meta.mime }), dur = await blobDuration(blob).catch(() => 0) || blobs.length * CHUNK_MS;
       await segPut(seg, blob, { entry: e.id, mime: meta.mime, size: blob.size, dur, i: meta.i });
-      if (!e.segs.some(g => g.id === seg)) { e.segs.push({ id: seg, i: meta.i, dur, mime: meta.mime, size: blob.size, text: '', st: settings.transcribe === 'off' && !e.tx ? 'off' : 'todo', recovered: true }); e.segs.sort((a, b) => a.i - b.i); }
+      if (!e.segs.some(g => g.id === seg)) { e.segs.push(meta.dict ? { id: seg, i: meta.i, dur, mime: meta.mime, size: blob.size, text: '', st: 'done', live: true, merged: true, recovered: true } : { id: seg, i: meta.i, dur, mime: meta.mime, size: blob.size, text: '', st: settings.transcribe === 'off' && !e.tx ? 'off' : 'todo', recovered: true }); e.segs.sort((a, b) => a.i - b.i); }
       e.dur = entryDur(e); e.state = 'done';
       if (await persist(e)) for (const k of ks) await idb.del('parts', k);
       toast('A recording that was cut off was recovered.');

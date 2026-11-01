@@ -6,7 +6,7 @@
 let locked = false, softLock = false, unlocking = false, hiddenAt = 0, pinStep = false, hideTimer = null, softTimer = null, storageAtRisk = false;
 const unlockWaiters = [];
 const COVERED = ['home', 'entry', 'sheet'];
-const workInFlight = () => recording || recFinishing || segWrites > 0 || persistQueued > 0 || txBusy || syncing || backupBusy;
+const workInFlight = () => recording || recFinishing || segWrites > 0 || persistQueued > 0 || txBusy || syncing || backupBusy || !!dictAudio || dictAudioBusy > 0;
 
 // ---------- lock screen ----------
 function showLock(soft) {
@@ -163,10 +163,14 @@ function renderTxBox() {
   box.innerHTML = '<div class="rowopt"><span>Engine</span><select id="setEngine"><option value="phone">Phone\'s speech recognition</option><option value="keyboard">Keyboard microphone (Gboard)</option><option value="claude">Claude app (dictate there)</option><option value="key">Own key (Mistral, …)</option><option value="cloud">Own cloud function</option></select></div>' + engBox +
     (eng === 'key' || eng === 'cloud' ? '<div class="rowopt"><span>Recordings</span><select id="setTx"><option value="auto">Text automatically</option><option value="ask">Ask after each one</option><option value="off">Audio only</option></select></div>' : '') +
     '<div class="rowopt"><span>Spoken language</span><select id="setLang"><option value="auto">German and English (detect)</option><option value="de">German</option><option value="en">English</option></select></div>' +
-    (eng === 'phone' ? '<div class="hint">The phone\'s recognition listens in one language at a time; "detect" uses the phone\'s language.</div>' : eng === 'keyboard' ? '<div class="hint">The keyboard\'s voice typing uses its own language setting; Gboard can hold several languages at once.</div>' : '') +
+    (eng === 'phone' ? '<div class="rowopt"><span>Keep the voice when dictating</span><select id="setDictVoice"><option value="1">Yes, playable</option><option value="0">No, text only</option></select></div>' +
+      (settings.dictVoice && dictVoiceMode() === 'no' ? '<div class="hint">This phone could not record and write at the same time, so dictation writes text only. <button class="linkbtn" id="dictVoiceRetry">Try again</button></div>' : '') +
+      '<div class="hint">The phone\'s recognition listens in one language at a time; "detect" uses the phone\'s language.</div>' : eng === 'keyboard' ? '<div class="hint">The keyboard\'s voice typing uses its own language setting; Gboard can hold several languages at once.</div>' : '') +
     '<div class="hint" id="sttHint"></div>';
   $('setEngine').value = eng; $('setEngine').addEventListener('change', e => { settings.engine = e.target.value; saveSettings(); abortTranscribe(); renderTxBox(); renderSyncLine(); scheduleTranscribe(); });
   if ($('setTx')) { $('setTx').value = settings.transcribe; $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } }); }
+  if ($('setDictVoice')) { $('setDictVoice').value = settings.dictVoice ? '1' : '0'; $('setDictVoice').addEventListener('change', ev => { settings.dictVoice = ev.target.value === '1'; saveSettings(); renderTxBox(); }); }
+  if ($('dictVoiceRetry')) $('dictVoiceRetry').addEventListener('click', () => { setDictVoiceMode(''); renderTxBox(); toast('The next dictation tries again.'); });
   $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); });
   if ($('sttSave')) $('sttSave').addEventListener('click', async () => {
     const key = $('sttKey').value.trim(), provider = $('sttProv').value, hint = $('sttHint');

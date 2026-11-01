@@ -144,15 +144,15 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check((await page.textContent('#entryDate')).includes(String(new Date().getFullYear())), 'date chip shows the date');
   await page.fill('#entryDateIn', '2024-05-17T21:30'); await page.dispatchEvent('#entryDateIn', 'change'); await sleep(300);
   check((await page.textContent('#entryDate')).includes('2024') && /21:30|9:30/.test(await page.textContent('#entryDate')), 'date chip shows the new date');
-  await page.click('#entrySave'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  await page.click('#entrySave'); await sleep(400); check(await page.isVisible('#entry:not([hidden])'), 'Save stays in the entry'); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
   const back1 = await page.evaluate(async () => { const live = journalDebug.entries.filter(x => !x.deleted); const e = live.find(x => x.text === 'Nachgetragen'); const d = new Date(e.created); const r = await journalDebug.idb.get('entries', e.id); return { last: live[live.length - 1] === e, y: d.getFullYear(), m: d.getMonth(), d: d.getDate(), h: d.getHours(), stored: !!r, cardLast: [...document.querySelectorAll('.card')].pop().textContent.includes('Nachgetragen') }; });
   check(back1.y === 2024 && back1.m === 4 && back1.d === 17 && back1.h === 21 && back1.stored && back1.last && back1.cardLast, 'entry moved to 17 May 2024 and to the end of the list');
   await page.evaluate(async () => { const e = journalDebug.entries.find(x => x.text === 'Nachgetragen'); e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); renderHome(); }); await sleep(300);
 
   // 2e3. Save button: stores, says so, back to the list
   await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.fill('#noteText', 'Gespeichert per Knopf');
-  await page.click('#entrySave'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
-  check(await page.evaluate(async () => { const e = journalDebug.entries.find(x => !x.deleted && x.text === 'Gespeichert per Knopf'); if (!e) return false; const r = await journalDebug.idb.get('entries', e.id); return !!r; }) && (await page.textContent('#toast')).includes('Saved'), 'Save stores the text at once and returns to the list');
+  await page.click('#entrySave'); await sleep(400); check(await page.isVisible('#entry:not([hidden])'), 'Save stays in the entry'); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await page.evaluate(async () => { const e = journalDebug.entries.find(x => !x.deleted && x.text === 'Gespeichert per Knopf'); if (!e) return false; const r = await journalDebug.idb.get('entries', e.id); return !!r; }) , 'Save stores the text at once');
   // Back right after typing (no pause) keeps the text too
   await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await page.type('#noteText', 'Schnell zurueck'); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
   check(await page.evaluate(() => journalDebug.entries.some(x => !x.deleted && x.text === 'Schnell zurueck')), 'Back right after typing keeps the text');
@@ -300,7 +300,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   // typing while dictating stops dictation and keeps both
   await p4.click('.card'); await p4.waitForSelector('#noteText'); await p4.click('#dictBtn'); await sleep(400);
   await p4.focus('#noteText'); await p4.keyboard.press('End'); await p4.keyboard.type(' getippt'); await sleep(700);
-  await p4.click('#entrySave'); await p4.waitForSelector('#home:not([hidden])'); await sleep(300);
+  await p4.click('#entrySave'); await sleep(400); await p4.click('#entryBack'); await p4.waitForSelector('#home:not([hidden])'); await sleep(300);
   check(await p4.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.text.endsWith('getippt') && e.text.includes('letzter Satz vorlaeufig'); }), 'typing stops dictation and keeps dictated and typed text');
 
   // Claude while dictating: dictation stops and the dictated text goes along
@@ -311,6 +311,51 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p4.click('#entryBack'); await p4.waitForSelector('#home:not([hidden])');
   await p4.click('#noteBtn'); await p4.waitForSelector('#noteText'); await p4.click('#claudeBtn'); await sleep(200);
   check(await p4.evaluate(() => window.__claudeQ === ''), 'Claude on an empty entry opens a new chat');
+
+  // 10. dictation keeps the voice: a second browser whose microphone hears a steady voice-like tone
+  const wav = require('path').join(require('os').tmpdir(), 'journal-voice.wav');
+  { const sr = 16000, n = sr * 30, buf = Buffer.alloc(44 + n * 2);
+    buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVEfmt ', 8); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
+    for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.sin(i / sr * 2 * Math.PI * 220) * 9000 * (0.6 + 0.4 * Math.sin(i / sr * 2 * Math.PI * 3))), 44 + i * 2);
+    require('fs').writeFileSync(wav, buf); }
+  const browser2 = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-audio-capture=' + wav, '--autoplay-policy=no-user-gesture-required'] });
+  const fakeSR = words => {
+    window.__words = words;
+    class FakeSR { start() { const me = this; if (window.__words) setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: window.__words }], { isFinal: true })] }), 300); } stop() { const me = this; setTimeout(() => me.onend && me.onend(), 50); } abort() {} }
+    window.SpeechRecognition = window.webkitSpeechRecognition = FakeSR;
+  };
+  const ctx5 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx5.grantPermissions(['microphone']);
+  await ctx5.addInitScript(fakeSR, 'heute war ein guter Tag');
+  const p5 = await ctx5.newPage(); p5.on('pageerror', e => errors.push('p5 pageerror: ' + e.message));
+  await p5.goto(BASE); await p5.waitForFunction(() => window.journalDebug && journalDebug.entries);
+  await p5.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
+  await p5.click('#recBtn'); await p5.waitForSelector('#noteText'); await sleep(4000);
+  check(await p5.evaluate(() => localStorage.getItem('journal-dict-voice')) === 'both', 'recognition and recording work side by side: remembered for this phone');
+  await p5.click('#dictBtn'); await p5.waitForSelector('#playBtn', { timeout: 10000 }).catch(() => {}); await sleep(500);
+  const dv = await p5.evaluate(async () => { const e = journalDebug.entries.find(x => !x.deleted); const g = e && e.segs[0]; if (!g) return null; const r = await journalDebug.idb.get('segs', g.id); const u = new Uint8Array(r.data); return { n: e.segs.length, st: g.st, live: g.live, dur: g.dur, text: e.text, webm: u[0] === 0x1a && u[1] === 0x45, parts: (await journalDebug.idb.keys('parts')).length }; });
+  console.log('dictated voice', JSON.stringify(dv));
+  check(dv && dv.n === 1 && dv.st === 'done' && dv.live && dv.dur > 2500 && dv.text.includes('heute war ein guter Tag') && !dv.webm && dv.parts === 0, 'the dictated voice is stored sealed as the entry\'s audio, the text beside it');
+  check(await p5.isVisible('#playBtn') && await p5.isVisible('#skipBack') && await p5.isVisible('#skipFwd') && (await p5.$$('.speed button')).length === 6 && (await p5.textContent('.speed')).includes('0.5'), 'player with 10 s back and on, speeds from 0.5');
+  check(!(await p5.isVisible('#txBtns button')), 'no "How to get text" for dictated audio');
+  await p5.click('.speed button[data-rate="0.5"]'); await p5.click('#playBtn'); await sleep(1200);
+  const pl = await p5.evaluate(() => ({ t: +document.getElementById('seek').value }));
+  await p5.click('#skipFwd'); await sleep(600);
+  const pl2 = await p5.evaluate(() => +document.getElementById('seek').value);
+  check(pl.t > 0 && pl.t < 1200 && pl2 >= Math.min(pl.t + 1500, 2500), 'plays at half speed, skips forward (' + pl.t + ' → ' + pl2 + ' ms)');
+  // a phone whose recognition hears nothing beside the recording: the recording gives way, text goes on, remembered
+  const ctx6 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx6.grantPermissions(['microphone']);
+  await ctx6.addInitScript(fakeSR, '');
+  const p6 = await ctx6.newPage(); p6.on('pageerror', e => errors.push('p6 pageerror: ' + e.message));
+  await p6.goto(BASE); await p6.waitForFunction(() => window.journalDebug && journalDebug.entries);
+  await p6.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
+  await p6.click('#recBtn'); await p6.waitForSelector('#noteText'); await p6.waitForFunction(() => localStorage.getItem('journal-dict-voice') === 'no', null, { timeout: 15000 }).catch(() => {}); await sleep(800);
+  const f6 = await p6.evaluate(() => ({ mode: localStorage.getItem('journal-dict-voice'), dict: dictOn, voice: !!dictAudio, segs: journalDebug.entries.find(x => !x.deleted).segs.length }));
+  console.log('no hearing beside the recording', JSON.stringify(f6));
+  check(f6.mode === 'no' && f6.dict && !f6.voice && f6.segs === 1, 'recognition deaf beside the recording: voice so far kept, dictation goes on as text, remembered');
+  await p6.click('#dictBtn'); await sleep(300); await p6.click('#entryBack'); await p6.waitForSelector('#home:not([hidden])');
+  await p6.click('#recBtn'); await p6.waitForSelector('#noteText'); await sleep(1500);
+  check(await p6.evaluate(() => dictOn && !dictAudio), 'next dictation on this phone writes text only');
+  await browser2.close();
 
   console.log('\nerrors:', errors.length ? errors : 'none');
   if (errors.length) fails++;
