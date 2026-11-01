@@ -81,25 +81,27 @@ function renderBackupBox() {
   let last = 0; try { last = +localStorage.getItem('journal.lastBackup') || 0; } catch (e) {}
   const n = live().length, size = live().reduce((s, e) => s + (e.segs || []).reduce((a, g) => a + (g.size || 0), 0), 0);
   box.innerHTML = '<p>An encrypted file with every entry and every recording (' + n + ' entries, about ' + fmtSize(size) + '). It opens in Journal on any device with the backup password. ' + (last ? 'Last backup ' + fmtDate(last) + '.' : 'No backup yet.') + '</p>' +
-    '<input id="bkPw" type="password" autocomplete="off" placeholder="Backup password (10+ characters)"><button id="bkMake" class="btn primary">Save encrypted backup</button>' +
+    '<form id="bkForm" class="pwform">' + pmUser('Journal backup') + '<input id="bkPw" name="password" type="password" autocomplete="new-password" placeholder="Backup password (10+ characters)"><input id="bkPw2" type="password" autocomplete="new-password" placeholder="Repeat the backup password"><button id="bkMake" type="submit" class="btn primary">Save encrypted backup</button></form>' +
     '<button id="bkLoad" class="btn">Load a backup file</button><div class="hint" id="bkHint"></div>' +
     '<button id="bkMd" class="btn quiet">Export all texts as Markdown (not encrypted)</button>';
-  $('bkMake').addEventListener('click', async () => {
+  $('bkForm').addEventListener('submit', async ev => {
+    ev.preventDefault();
     const pw = $('bkPw').value, hint = $('bkHint');
     if (backupBusy) return;
     if (pw.length < 10) { hint.textContent = 'Use a backup password of at least 10 characters. You need it to open the file later; it cannot be recovered.'; return; }
+    if (pw !== $('bkPw2').value) { hint.textContent = 'The two passwords differ.'; return; }
     backupBusy = true; hint.textContent = 'Encrypting…';
     try {
       const { blob, missing } = await makeBackup(pw);
       const res = await deliverFile(blob, 'journal-' + dayKey(Date.now()) + '.journal');
-      if (res !== 'cancelled') { try { localStorage.setItem('journal.lastBackup', String(Date.now())); } catch (e) {} hint.textContent = 'Backup ' + res + (missing ? '. ' + missing + ' recordings are only in the cloud and were not included.' : '.'); $('bkPw').value = ''; }
+      if (res !== 'cancelled') { try { localStorage.setItem('journal.lastBackup', String(Date.now())); } catch (e) {} hint.textContent = 'Backup ' + res + (missing ? '. ' + missing + ' recordings are only in the cloud and were not included.' : '.'); $('bkPw').value = ''; $('bkPw2').value = ''; }
       else hint.textContent = '';
     } catch (e) { hint.textContent = 'Backup failed: ' + errText(e); }
     finally { backupBusy = false; }
   });
   $('bkLoad').addEventListener('click', () => {
     const pw = $('bkPw').value, hint = $('bkHint');
-    if (!pw) { hint.textContent = 'Enter the backup password of the file first, then choose the file.'; return; }
+    if (!pw) { hint.textContent = 'Enter the backup password of the file in the first field, then choose the file.'; return; }
     $('importInput').value = ''; $('importInput').click();
   });
   $('bkMd').addEventListener('click', () => popup('Export as plain text?', 'The Markdown file is NOT encrypted. Anyone who gets the file can read your journal. Keep it only in a place you trust.', [

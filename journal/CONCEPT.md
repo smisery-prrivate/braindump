@@ -226,6 +226,9 @@ See `README.md`.
 
 ## History
 
+- v21 (2026-11-01): the backup password is asked twice; every password form carries a fixed
+  name for password managers ("Journal app lock", "Journal backup", "Journal cloud copy"), so
+  Proton Pass and others file it under that name instead of "GitHub" and fill it on the lock screen.
 - v20 (2026-11-01): dictation keeps the voice: the same microphone is recorded while the phone
   writes (newer Chrome feeds the recognition from the recording), stored encrypted as the entry's
   audio; where a phone cannot do both it notices, keeps the text going and remembers it. Player

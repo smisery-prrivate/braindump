@@ -223,12 +223,18 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   // headless Chromium has no fingerprint: the tap opens the menu straight at the password form
   await page.click('#lockNudge'); await page.waitForSelector('#pin1', { timeout: 5000 }).catch(() => {});
   check(await page.isVisible('#sheet.open') && await page.isVisible('#pin1'), 'without a fingerprint the tap leads to the password form');
+  check(await page.evaluate(() => [...document.querySelectorAll('#pinForm .pmuser')].map(x => x.value).join() === 'Journal app lock' && document.getElementById('pin2').autocomplete === 'new-password'), 'lock password form names itself for password managers, asks twice');
+  // backup password: asked twice, named for password managers
+  await page.evaluate(() => document.getElementById('bkPw').scrollIntoView());
+  await page.fill('#bkPw', 'ein langes passwort'); await page.fill('#bkPw2', 'ein anderes passwort'); await page.click('#bkMake'); await sleep(300);
+  check((await page.textContent('#bkHint')).includes('differ') && await page.evaluate(() => document.querySelector('#bkForm .pmuser').value === 'Journal backup'), 'backup password asked twice, mismatch caught, named "Journal backup"');
   await page.evaluate(() => back()); await sleep(400);
   await page.evaluate(() => journalDebug.Vault.setPin('langes passwort 123'));
   await page.evaluate(() => renderLockNudge()); check(!(await page.isVisible('#lockNudge')), 'the line is gone once the lock is on');
   await page.evaluate(() => journalDebug.relock());
   await page.waitForFunction(() => window.journalDebug && journalDebug.locked && document.getElementById('lock').hidden === false, null, { timeout: 15000 });
   check(await page.evaluate(() => !journalDebug.Vault.isOpen()), 'after the restart the key is not in memory');
+  check(await page.evaluate(() => document.querySelector('#lockForm .pmuser').value === 'Journal app lock' && document.getElementById('pinInput').autocomplete === 'current-password'), 'lock screen field can be filled by a password manager');
   await page.fill('#pinInput', 'wrong'); await page.click('#unlockBtn'); await sleep(2500);
   check((await page.textContent('#lockErr')).includes('Wrong'), 'wrong PIN refused');
   await page.fill('#pinInput', 'langes passwort 123'); await page.press('#pinInput', 'Enter');

@@ -479,17 +479,16 @@ function renderSyncBox() {
   } else if (mode === 'create' || mode === 'change') {
     box.innerHTML = '<p>' + (mode === 'create' ? '<b>Choose an encryption password.</b> Your journal is encrypted on this phone before it is uploaded, so nobody else can read it, not even the cloud provider.' : '<b>New encryption password.</b> Other devices ask for it the next time they set up the cloud copy.') +
       ' It is needed once on each new device. It cannot be reset: without it the cloud copy cannot be opened.</p>' +
-      '<input id="pw1" type="password" autocomplete="new-password" placeholder="Encryption password"><input id="pw2" type="password" autocomplete="new-password" placeholder="Repeat">' +
-      '<button id="pwSuggest" class="btn">Suggest a strong one</button><button id="pwGo" class="btn primary">' + (mode === 'create' ? 'Turn on the encrypted cloud copy' : 'Change password') + '</button><div class="hint" id="pwHint"></div>' +
+      '<form id="pwForm" class="pwform">' + pmUser('Journal cloud copy') + '<input id="pw1" name="password" type="password" autocomplete="new-password" placeholder="Encryption password"><input id="pw2" type="password" autocomplete="new-password" placeholder="Repeat">' +
+      '<button id="pwSuggest" type="button" class="btn">Suggest a strong one</button><button id="pwGo" type="submit" class="btn primary">' + (mode === 'create' ? 'Turn on the encrypted cloud copy' : 'Change password') + '</button></form><div class="hint" id="pwHint"></div>' +
       (mode === 'create' ? '<div class="hint">Transcription works already; the cloud copy starts once the password is set.</div>' + signOutBtn : '<button id="pwCancel" class="btn quiet">Cancel</button>');
     $('pwSuggest').addEventListener('click', () => { const s = Vault.suggestPassword(); for (const id of ['pw1', 'pw2']) { $(id).type = 'text'; $(id).value = s; } $('pwHint').textContent = 'Save it in your password manager now, before you continue.'; });
-    $('pwGo').addEventListener('click', () => submitKey($('pw1').value, $('pw2').value, $('pwHint')));
+    $('pwForm').addEventListener('submit', ev => { ev.preventDefault(); submitKey($('pw1').value, $('pw2').value, $('pwHint')); });
     if (mode === 'change') $('pwCancel').addEventListener('click', () => { keyNeed = ''; renderSyncBox(); });
   } else if (mode === 'enter') {
     box.innerHTML = '<p><b>Enter your encryption password.</b> It is the one you chose when you first turned on the cloud copy. It opens your journal on this device and is never sent anywhere.</p>' +
-      '<input id="pw1" type="password" autocomplete="current-password" placeholder="Encryption password"><button id="pwGo" class="btn primary">Unlock the cloud copy</button><div class="hint" id="pwHint"></div>' + signOutBtn;
-    $('pwGo').addEventListener('click', () => submitKey($('pw1').value, '', $('pwHint')));
-    $('pw1').addEventListener('keydown', e => { if (e.key === 'Enter') submitKey($('pw1').value, '', $('pwHint')); });
+      '<form id="pwForm" class="pwform">' + pmUser('Journal cloud copy') + '<input id="pw1" name="password" type="password" autocomplete="current-password" placeholder="Encryption password"><button id="pwGo" type="submit" class="btn primary">Unlock the cloud copy</button></form><div class="hint" id="pwHint"></div>' + signOutBtn;
+    $('pwForm').addEventListener('submit', ev => { ev.preventDefault(); submitKey($('pw1').value, '', $('pwHint')); });
   } else {
     const err = syncState === 'error', off = syncState === 'offline';
     const waiting = entries.filter(e => !e.broken && e.state === 'done' && (e.pushed_at || 0) < (e.updated_at || 0)).length;

@@ -52,8 +52,7 @@ async function tryUnlock() {
   } finally { if (unlockRun === run) unlockRun = null; if (my === unlockSeq) unlocking = false; }
 }
 const whenUnlocked = () => locked ? new Promise(r => unlockWaiters.push(r)) : Promise.resolve();
-$('unlockBtn').addEventListener('click', tryUnlock);
-$('pinInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+$('lockForm').addEventListener('submit', ev => { ev.preventDefault(); tryUnlock(); });
 $('lockReset').addEventListener('click', () => popup('Reset Journal on this device?',
   'Everything stored here is erased: entries, audio, lock and sign-in. Entries that were copied to the cloud come back after you sign in and enter your encryption password again. Entries that were never copied are lost.',
   [{ label: 'Erase and reset', cls: 'danger', fn: () => wipeEverything().then(() => location.reload(), e => popup('Reset', errText(e), [{ label: 'OK', cls: 'primary' }], { lockOk: true })) }, { label: 'Cancel', cls: 'quiet' }], { lockOk: true }));
@@ -158,7 +157,7 @@ function renderTxBox() {
   else if (eng === 'key') engBox = stt ? '<div class="statecard"><div class="t">✓ ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Memos and dictated notes go straight from this phone to the service and the text comes back. The service may keep audio for a while under its own terms.</div></div><button class="btn quiet" id="sttOff">Remove the key</button>'
     : '<p>Mistral (Paris) transcribes German and English for a few cents per hour: sign up at console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create. (Mistral\'s free Experiment plan lets them train on your audio, so take the paid one for a journal.) The key is stored encrypted on this device and used only from here.</p>' +
       '<select id="sttProv">' + Object.keys(STT).map(k => '<option value="' + k + '">' + esc(STT[k].name) + '</option>').join('') + '</select>' +
-      '<input id="sttKey" type="password" autocomplete="off" placeholder="API key"><button class="btn primary" id="sttSave">Use this key</button>';
+      '<input id="sttKey" type="password" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore placeholder="API key"><button class="btn primary" id="sttSave">Use this key</button>';
   else engBox = SYNC ? '<div class="hint">' + (session ? 'Signed in: memos and dictated notes go to the transcription function in your own cloud project; no key is kept on the phone.' : 'Sign in under Cloud below. The transcription function in your own cloud project holds the key; nothing is kept on the phone.') + '</div>' : '<div class="hint">The cloud is not switched on in this version.</div>';
   box.innerHTML = '<div class="rowopt"><span>Engine</span><select id="setEngine"><option value="phone">Phone\'s speech recognition</option><option value="keyboard">Keyboard microphone (Gboard)</option><option value="claude">Claude app (dictate there)</option><option value="key">Own key (Mistral, …)</option><option value="cloud">Own cloud function</option></select></div>' + engBox +
     (eng === 'key' || eng === 'cloud' ? '<div class="rowopt"><span>Recordings</span><select id="setTx"><option value="auto">Text automatically</option><option value="ask">Ask after each one</option><option value="off">Audio only</option></select></div>' : '') +
@@ -207,11 +206,12 @@ function renderLockBox() {
   }
   if (pinStep) {
     box.innerHTML = '<p>Choose a password (8 characters or more, with at least 4 letters) or a long PIN (12 digits or more). It is asked every time the app opens. It cannot be recovered: if you forget it, the app on this device has to be reset.</p>' +
-      '<div class="pinform"><input id="pin1" type="password" autocomplete="new-password" placeholder="Password or long PIN"><input id="pin2" type="password" autocomplete="new-password" placeholder="Repeat"></div>' +
-      '<button class="btn primary" id="pinSave">Turn the lock on</button><button class="btn quiet" id="pinBack">Back</button><div class="hint" id="lockHint"></div>';
+      '<form id="pinForm" class="pwform">' + pmUser('Journal app lock') + '<div class="pinform"><input id="pin1" name="password" type="password" autocomplete="new-password" placeholder="Password or long PIN"><input id="pin2" type="password" autocomplete="new-password" placeholder="Repeat"></div>' +
+      '<button class="btn primary" id="pinSave" type="submit">Turn the lock on</button></form><button class="btn quiet" id="pinBack">Back</button><div class="hint" id="lockHint"></div>';
     $('pinBack').addEventListener('click', () => { pinStep = false; renderLockBox(); });
     let saving = false;
-    $('pinSave').addEventListener('click', async () => {
+    $('pinForm').addEventListener('submit', async ev => {
+      ev.preventDefault();
       const a = $('pin1').value, b = $('pin2').value, hint = $('lockHint');
       if (saving) return;
       const prob = pinProblem(a); if (prob) { hint.textContent = prob; return; }

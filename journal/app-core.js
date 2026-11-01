@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v20';
+const VERSION = 'v21';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -251,6 +251,10 @@ function popup(title, text, buttons, opts) {
 }
 $('popup').addEventListener('click', e => { if (e.target === $('popup')) back(); });
 // a popup with one text field: fn(value) runs after OK (empty values are ignored)
+// Password managers (Proton Pass, Bitwarden, …) file a password under the site and a username. The
+// site is github.io, so without a name the entry reads "GitHub". Every password form therefore
+// carries a fixed, invisible username naming what the password is for.
+const pmUser = label => '<input type="text" class="pmuser" name="username" autocomplete="username" value="' + esc(label) + '" readonly tabindex="-1" aria-hidden="true">';
 function popupInput(title, text, value, placeholder, okLabel, fn) {
   if (locked || passive) return;
   if (stack[stack.length - 1] === 'popup') return;

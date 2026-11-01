@@ -129,6 +129,8 @@
   .player .play:disabled { opacity: .5; }
   .player .skip { width: 44px; height: 44px; border-radius: 22px; border: 1px solid var(--line); background: transparent; color: var(--accent); font-size: 13px; font-weight: 700; flex: none; padding: 0; }
   .player .row input[type=range] { min-width: 0; flex: 1; }
+  .pmuser { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; border: 0; opacity: 0; pointer-events: none; overflow: hidden; }
+  form.pwform { display: contents; }
   .linkbtn { border: none; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; text-decoration: underline; }
   .player input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
   .player .times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 4px; }
@@ -271,8 +273,11 @@
   <h2>Journal is locked</h2>
   <p id="lockText">Unlock with your fingerprint or screen lock.</p>
   <div id="lockRec" hidden>● A recording is still running</div>
-  <input id="pinInput" type="password" autocomplete="off" placeholder="PIN" hidden>
-  <button id="unlockBtn" class="btn">Unlock</button>
+  <form id="lockForm" class="pwform" autocomplete="on">
+    <input type="text" class="pmuser" name="username" autocomplete="username" value="Journal app lock" readonly tabindex="-1" aria-hidden="true">
+    <input id="pinInput" name="password" type="password" autocomplete="current-password" placeholder="PIN" hidden>
+    <button id="unlockBtn" type="submit" class="btn">Unlock</button>
+  </form>
   <div id="lockErr"></div>
   <button id="lockReset" class="quiet">Can't unlock? Reset this app</button>
 </div>
