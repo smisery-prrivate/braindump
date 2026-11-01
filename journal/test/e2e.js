@@ -10,6 +10,8 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
   const ctx = await browser.newContext({ viewport: { width: 400, height: 800 }, hasTouch: true, isMobile: true });
   await ctx.grantPermissions(['microphone']);
+  // headless Chromium has the on-device recognition API but no speech service: asking it kills the page
+  await ctx.addInitScript(() => { const S = self.SpeechRecognition || self.webkitSpeechRecognition; if (S) { S.available = async () => 'unavailable'; S.install = async () => false; } });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
@@ -361,6 +363,40 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p6.click('#dictBtn'); await sleep(300); await p6.click('#entryBack'); await p6.waitForSelector('#home:not([hidden])');
   await p6.click('#recBtn'); await p6.waitForSelector('#noteText'); await sleep(1500);
   check(await p6.evaluate(() => dictOn && !dictAudio), 'next dictation on this phone writes text only');
+  // 11. recognition on the phone itself: used where available, downloaded where it can be, never asked again after a check that died
+  const ctx8 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx8.grantPermissions(['microphone']);
+  await ctx8.addInitScript(() => {
+    window.__made = []; window.__installs = [];
+    class FakeSR { constructor() { this.processLocally = false; window.__made.push(this); } start() { const me = this; if (this.processLocally && window.__localFails) { setTimeout(() => me.onerror && me.onerror({ error: 'language-not-supported' }), 100); return; } setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: 'lokal erkannt' }], { isFinal: true })] }), 200); } stop() { const me = this; setTimeout(() => me.onend && me.onend(), 50); } abort() {} }
+    FakeSR.prototype.processLocally = false;
+    FakeSR.available = async o => window.__avail || 'available';
+    FakeSR.install = async o => { window.__installs.push(o.langs[0]); return true; };
+    window.SpeechRecognition = window.webkitSpeechRecognition = FakeSR;
+  });
+  const p8 = await ctx8.newPage(); p8.on('pageerror', e => errors.push('p8 pageerror: ' + e.message));
+  await p8.goto(BASE); await p8.waitForFunction(() => window.journalDebug && journalDebug.entries);
+  await p8.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.lang = 'de'; saveSettings(); });
+  await p8.click('#recBtn'); await p8.waitForSelector('#noteText'); await sleep(1500);
+  check(await p8.evaluate(() => dictOn && window.__made.length > 0 && window.__made[window.__made.length - 1].processLocally === true && localStorage.getItem('journal-sr-local|de-DE') === 'available'), 'available on the phone: dictation recognises on the device');
+  await p8.click('#dictBtn'); await sleep(300); await p8.click('#entryBack'); await p8.waitForSelector('#home:not([hidden])');
+  // downloadable: this dictation as before, the pack is fetched for the next one
+  await p8.evaluate(() => { window.__avail = 'downloadable'; localStorage.removeItem('journal-sr-local|de-DE'); });
+  await p8.click('#recBtn'); await p8.waitForSelector('#noteText'); await sleep(1500);
+  check(await p8.evaluate(() => dictOn && window.__made[window.__made.length - 1].processLocally === false && window.__installs.includes('de-DE') && localStorage.getItem('journal-sr-local|de-DE') === 'available'), 'downloadable: dictation goes on as before, the language pack is downloaded');
+  await p8.click('#dictBtn'); await sleep(300); await p8.click('#entryBack'); await p8.waitForSelector('#home:not([hidden])');
+  // available, but the recognition on the phone refuses: the usual one takes over at once
+  await p8.evaluate(() => { window.__avail = 'available'; window.__localFails = true; localStorage.removeItem('journal-sr-local|de-DE'); });
+  await p8.click('#recBtn'); await p8.waitForSelector('#noteText'); await sleep(1500);
+  check(await p8.evaluate(() => dictOn && localStorage.getItem('journal-sr-local|de-DE') === 'failed' && window.__made[window.__made.length - 1].processLocally === false && document.getElementById('noteText').value.includes('lokal erkannt')), 'on-device recognition refuses: the usual one takes over, the words still come');
+  await p8.click('#dictBtn'); await sleep(300); await p8.click('#entryBack'); await p8.waitForSelector('#home:not([hidden])');
+  await p8.evaluate(() => { window.__localFails = false; });
+  // a check that never came back (the page died): not asked again, dictation as before
+  await p8.evaluate(() => { window.__avail = 'available'; localStorage.removeItem('journal-sr-local|de-DE'); localStorage.setItem('journal-sr-local|probe', 'de-DE'); });
+  await p8.click('#recBtn'); await p8.waitForSelector('#noteText'); await sleep(1500);
+  check(await p8.evaluate(() => dictOn && window.__made[window.__made.length - 1].processLocally === false && localStorage.getItem('journal-sr-local|de-DE') === 'failed'), 'a check that killed the page is not tried again');
+  await p8.click('#dictBtn'); await sleep(300);
+  await p8.evaluate(() => back()); await p8.waitForSelector('#home:not([hidden])'); await p8.click('#menuBtn'); await p8.waitForSelector('#setSrLocal');
+  check((await p8.textContent('#txBox')).includes('German: did not work') && await p8.isVisible('#srLocalRetry'), 'menu shows the state per language and offers to check again');
   await browser2.close();
   // a phone where the recognition takes the microphone and the recording beside it stays silent
   // (what happened before on Android: text came, the audio played nothing): no silent audio is kept

@@ -226,6 +226,9 @@ See `README.md`.
 
 ## History
 
+- v22 (2026-11-01): dictation uses Chrome's recognition on the phone itself where offered (no
+  network, no tones); a language pack that can be downloaded is fetched for the next dictation;
+  menu shows German and English state; a check that kills the page is never tried again.
 - v21 (2026-11-01): the backup password is asked twice; every password form carries a fixed
   name for password managers ("Journal app lock", "Journal backup", "Journal cloud copy"), so
   Proton Pass and others file it under that name instead of "GitHub" and fill it on the lock screen.

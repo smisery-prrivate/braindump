@@ -147,6 +147,16 @@ function renderSheet() {
   renderTxBox(); renderSyncBox(); renderLockBox(); renderBackupBox(); renderInstallBox();
   $('setSeg').value = String(settings.segMin); $('setSeg').addEventListener('change', e => { settings.segMin = +e.target.value; saveSettings(); });
 }
+// on-device recognition: the switch, and what this phone said about German and English
+function srLocalBox() {
+  if (!srLocalOffered()) return '<div class="hint">Recognition on the phone itself is not offered by this browser (needs a recent Chrome).</div>';
+  const name = { 'de-DE': 'German', 'en-US': 'English' }, word = { available: 'on this phone ✓', downloadable: 'can be downloaded', downloading: 'downloading…', unavailable: 'not offered', failed: 'did not work', '': 'not checked yet' };
+  const st = ['de-DE', 'en-US'].map(l => [l, srLocalGet(l)]);
+  return '<div class="rowopt"><span>Recognise on the phone itself</span><select id="setSrLocal"><option value="1">Yes, where offered</option><option value="0">No</option></select></div>' +
+    (settings.srLocal ? '<div class="hint">No internet, no tones. ' + st.map(([l, s]) => name[l] + ': ' + (word[s] || s)).join(' · ') + '. ' +
+      (st.some(([, s]) => s === 'downloadable') ? '<button class="linkbtn" id="srLocalGet">Download</button> ' : '') +
+      (st.some(([, s]) => s === 'failed' || s === 'unavailable') ? '<button class="linkbtn" id="srLocalRetry">Check again</button>' : '') + '</div>' : '');
+}
 function renderTxBox() {
   const box = $('txBox'); if (!box) return;
   const eng = settings.engine;
@@ -162,12 +172,15 @@ function renderTxBox() {
   box.innerHTML = '<div class="rowopt"><span>Engine</span><select id="setEngine"><option value="phone">Phone\'s speech recognition</option><option value="keyboard">Keyboard microphone (Gboard)</option><option value="claude">Claude app (dictate there)</option><option value="key">Own key (Mistral, …)</option><option value="cloud">Own cloud function</option></select></div>' + engBox +
     (eng === 'key' || eng === 'cloud' ? '<div class="rowopt"><span>Recordings</span><select id="setTx"><option value="auto">Text automatically</option><option value="ask">Ask after each one</option><option value="off">Audio only</option></select></div>' : '') +
     '<div class="rowopt"><span>Spoken language</span><select id="setLang"><option value="auto">German and English (detect)</option><option value="de">German</option><option value="en">English</option></select></div>' +
-    (eng === 'phone' ? '<div class="rowopt"><span>Keep the voice when dictating</span><select id="setDictVoice"><option value="1">Yes, playable</option><option value="0">No, text only</option></select></div>' +
+    (eng === 'phone' ? srLocalBox() + '<div class="rowopt"><span>Keep the voice when dictating</span><select id="setDictVoice"><option value="1">Yes, playable</option><option value="0">No, text only</option></select></div>' +
       (settings.dictVoice && dictVoiceMode() === 'no' ? '<div class="hint">This phone could not record and write at the same time, so dictation writes text only. <button class="linkbtn" id="dictVoiceRetry">Try again</button></div>' : '') +
       '<div class="hint">The phone\'s recognition listens in one language at a time; "detect" uses the phone\'s language.</div>' : eng === 'keyboard' ? '<div class="hint">The keyboard\'s voice typing uses its own language setting; Gboard can hold several languages at once.</div>' : '') +
     '<div class="hint" id="sttHint"></div>';
   $('setEngine').value = eng; $('setEngine').addEventListener('change', e => { settings.engine = e.target.value; saveSettings(); abortTranscribe(); renderTxBox(); renderSyncLine(); scheduleTranscribe(); });
   if ($('setTx')) { $('setTx').value = settings.transcribe; $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } }); }
+  if ($('setSrLocal')) { $('setSrLocal').value = settings.srLocal ? '1' : '0'; $('setSrLocal').addEventListener('change', ev => { settings.srLocal = ev.target.value === '1'; saveSettings(); renderTxBox(); }); }
+  if ($('srLocalGet')) $('srLocalGet').addEventListener('click', () => srLocalInstall(['de-DE', 'en-US'].filter(l => ['downloadable', ''].includes(srLocalGet(l))), false));
+  if ($('srLocalRetry')) $('srLocalRetry').addEventListener('click', () => { for (const l of ['de-DE', 'en-US']) srLocalNote(l, ''); renderTxBox(); toast('The next dictation checks again.'); });
   if ($('setDictVoice')) { $('setDictVoice').value = settings.dictVoice ? '1' : '0'; $('setDictVoice').addEventListener('change', ev => { settings.dictVoice = ev.target.value === '1'; saveSettings(); renderTxBox(); }); }
   if ($('dictVoiceRetry')) $('dictVoiceRetry').addEventListener('click', () => { setDictVoiceMode(''); renderTxBox(); toast('The next dictation tries again.'); });
   $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); });

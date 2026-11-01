@@ -259,6 +259,8 @@ async function startDictation() {
   const cur = (e.text || '').replace(/\s+$/, '');
   dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictSess = ''; dictEntry = e; dictOn = true;
   const b = $('dictBtn'); if (b) b.textContent = '■ Stop';
+  dictLocal = await srLocalReady(dictLang());                       // recognition on the phone itself, where Chrome offers it
+  if (!dictOn || dictEntry !== e) return;
   const plan = dictVoicePlan();
   if (plan !== 'no') await startDictVoice(e, plan);                 // the voice is recorded alongside, where the phone can
   if (!dictOn || dictEntry !== e) { stopDictVoice(true); return; }
@@ -269,7 +271,10 @@ function runDictSR(e) {
   if (!dictOn || curEntry !== e || dictRec) return;
   const r = new SR(); dictRec = r; dictSess = '';
   r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  const local = dictLocal; if (local) { try { r.processLocally = true; } catch (err) {} }
+  let heardHere = false;
   r.onresult = ev => {
+    heardHere = true;
     // Android also lists the same utterance several times inside one event, each entry a little
     // longer than the one before ("dies", "dies ist", "dies ist ein"): folded on their overlap
     let finals = '', interim = '';
@@ -280,6 +285,8 @@ function runDictSR(e) {
   r.onerror = ev => {
     const err = ev.error || '';
     if (err === 'no-speech' || err === 'aborted') return;
+    // the recognition on the phone refuses (model missing, language not offered): the usual one takes over
+    if (local && !heardHere) { dictLocal = false; srLocalNote(r.lang, 'failed'); if (dictRec === r) { dictRec = null; try { r.abort(); } catch (e2) {} } setTimeout(() => runDictSR(e), 200); return; }
     if (dictAudio && !dictAudio.ok && !dictAudio.heard) { dictVoiceFailed('sr'); return; }      // recognition cannot hear beside the recording: the recording gives way
     if (err === 'not-allowed' || err === 'service-not-allowed') { stopDictation(); popup('Microphone', 'Journal has no permission to use the microphone for dictation. Allow it in the browser settings for this site.', [{ label: 'OK', cls: 'primary' }]); }
   };
@@ -289,6 +296,46 @@ function runDictSR(e) {
     if (v && v.mode === 'track') { const t = v.track.clone(); v.clones.push(t); r.start(t); } else r.start();
   } catch (err) { dictRec = null; if (dictAudio && !dictAudio.ok) { dictVoiceFailed('sr'); return; } stopDictation(); }
 }
+// ---------- recognition on the phone itself (newer Chrome) ----------
+// Chrome can recognise speech on the device: no network, no Google tones, and it need not stop at
+// every pause. Per language it is "available", "downloadable" (a one-time download of the language
+// pack), "downloading" or "unavailable". The answer is remembered per language for the menu. A
+// check that never came back (the page died during it) is not tried again on this phone.
+const SR_LOCAL_KEY = 'journal-sr-local';
+let dictLocal = false;
+const srLocalOffered = () => !!(SR && 'processLocally' in SR.prototype && typeof SR.available === 'function');
+const srLocalGet = lang => { try { return localStorage.getItem(SR_LOCAL_KEY + '|' + lang) || ''; } catch (e) { return ''; } };
+function srLocalNote(lang, st) { try { localStorage.setItem(SR_LOCAL_KEY + '|' + lang, st); } catch (e) {} }
+async function srLocalState(lang) {
+  if (!srLocalOffered()) return 'unavailable';
+  if (srLocalGet(lang) === 'failed') return 'failed';
+  let probe = ''; try { probe = localStorage.getItem(SR_LOCAL_KEY + '|probe') || ''; } catch (e) {}
+  if (probe === lang) { srLocalNote(lang, 'failed'); return 'failed'; }      // the last check never came back
+  try { localStorage.setItem(SR_LOCAL_KEY + '|probe', lang); } catch (e) {}
+  let st = 'unavailable';
+  try { st = await Promise.race([SR.available({ langs: [lang], processLocally: true }), new Promise(r => setTimeout(() => r('timeout'), 3000))]); } catch (e) { st = 'unavailable'; }
+  try { localStorage.removeItem(SR_LOCAL_KEY + '|probe'); } catch (e) {}
+  if (st !== 'timeout') srLocalNote(lang, st);
+  return st;
+}
+// ready for this dictation? A language pack that can be downloaded is fetched now for the next one.
+async function srLocalReady(lang) {
+  if (!settings.srLocal) return false;
+  const st = await srLocalState(lang);
+  if (st === 'available') return true;
+  if (st === 'downloadable') srLocalInstall([lang], true);
+  return false;
+}
+let srInstalling = false;
+async function srLocalInstall(langs, quiet) {
+  if (srInstalling || !srLocalOffered() || typeof SR.install !== 'function') return;
+  srInstalling = true;
+  if (!quiet || !srLocalGet('told')) { toast('Downloading speech recognition onto this phone. Dictation uses it once it is there.'); srLocalNote('told', '1'); }
+  try { for (const l of langs) { srLocalNote(l, 'downloading'); const ok = await SR.install({ langs: [l], processLocally: true }); srLocalNote(l, ok ? 'available' : 'unavailable'); } }
+  catch (e) { for (const l of langs) if (srLocalGet(l) === 'downloading') srLocalNote(l, 'unavailable'); }
+  finally { srInstalling = false; if ($('txBox')) renderTxBox(); }
+}
+
 // the dictated text is stored every few seconds while dictating, so a killed app keeps it
 let dictSaveTimer = null;
 function scheduleDictSave() {

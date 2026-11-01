@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v21';
+const VERSION = 'v22';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -43,7 +43,7 @@ function writeGuard() {
 // engine: 'phone' (the phone's own speech recognition, live while recording and while dictating),
 // 'keyboard' (the keyboard's own microphone key, Gboard: the text window opens with the keyboard up),
 // 'key' (the user's own key for a service), 'cloud' (the app's own cloud function, needs sign-in)
-let settings = { lockAfter: 60, transcribe: 'auto', segMin: 5, lang: 'auto', engine: 'phone', dictVoice: true };
+let settings = { lockAfter: 60, transcribe: 'auto', segMin: 5, lang: 'auto', engine: 'phone', dictVoice: true, srLocal: true };
 const LOCK_AFTER = [5, 60, 300, 1800], SEG_MIN = [2, 5, 10], LANGS = ['auto', 'de', 'en'];
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SET_KEY) || '{}')); } catch (e) {}
 if (!LOCK_AFTER.includes(+settings.lockAfter)) settings.lockAfter = 60;      // only the offered values: nothing in plain storage can switch the lock off
@@ -52,6 +52,7 @@ if (!['ask', 'auto', 'off'].includes(settings.transcribe)) settings.transcribe =
 if (!LANGS.includes(settings.lang)) settings.lang = 'auto';
 if (!['phone', 'keyboard', 'claude', 'key', 'cloud'].includes(settings.engine)) settings.engine = 'phone';
 settings.dictVoice = settings.dictVoice !== false;
+settings.srLocal = settings.srLocal !== false;
 const saveSettings = () => { try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch (e) {} };
 
 // ---------- IndexedDB ----------
