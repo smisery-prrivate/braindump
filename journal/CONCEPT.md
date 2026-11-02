@@ -226,6 +226,10 @@ See `README.md`.
 
 ## History
 
+- v23 (2026-11-02): dictation was silent on a real phone (the Google tone, then no words): when the
+  app tries the voice recording or on-device recognition and no word comes within 4 s, dictation
+  goes back to the plain way and the phone keeps it so; a silent recording is also recognised by
+  its compressed size. The text card shows a red "Listening" while dictating.
 - v22 (2026-11-01): dictation uses Chrome's recognition on the phone itself where offered (no
   network, no tones); a language pack that can be downloaded is fetched for the next dictation;
   menu shows German and English state; a check that kills the page is never tried again.

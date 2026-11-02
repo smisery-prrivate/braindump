@@ -143,6 +143,10 @@
   .txcard .t button { height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font-size: 13px; font-weight: 600; color: var(--accent); text-transform: none; letter-spacing: 0; }
   .txcard .tbtns { display: flex; gap: 6px; }
   .txcard textarea { width: 100%; min-height: 160px; border: 1px solid transparent; border-radius: 10px; background: transparent; padding: 6px 8px; font-size: 16px; line-height: 1.5; resize: vertical; }
+  .txcard.listening { border-color: var(--rec); box-shadow: 0 0 0 1px var(--rec); }
+  .txcard.listening .tlabel { color: var(--rec); display: inline-flex; align-items: center; gap: 6px; }
+  .ldot { width: 9px; height: 9px; border-radius: 5px; background: var(--rec); display: inline-block; animation: lpulse 1.2s ease-in-out infinite; }
+  @keyframes lpulse { 50% { opacity: .25; } }
   .txcard textarea:focus { outline: none; border-color: var(--accent); background: #fcfbfe; }
   .txcard .st { font-size: 13px; color: var(--muted); line-height: 1.45; }
   .txcard .st.fail { color: var(--danger); }

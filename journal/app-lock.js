@@ -180,7 +180,7 @@ function renderTxBox() {
   if ($('setTx')) { $('setTx').value = settings.transcribe; $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } }); }
   if ($('setSrLocal')) { $('setSrLocal').value = settings.srLocal ? '1' : '0'; $('setSrLocal').addEventListener('change', ev => { settings.srLocal = ev.target.value === '1'; saveSettings(); renderTxBox(); }); }
   if ($('srLocalGet')) $('srLocalGet').addEventListener('click', () => srLocalInstall(['de-DE', 'en-US'].filter(l => ['downloadable', ''].includes(srLocalGet(l))), false));
-  if ($('srLocalRetry')) $('srLocalRetry').addEventListener('click', () => { for (const l of ['de-DE', 'en-US']) srLocalNote(l, ''); renderTxBox(); toast('The next dictation checks again.'); });
+  if ($('srLocalRetry')) $('srLocalRetry').addEventListener('click', () => { for (const l of ['de-DE', 'en-US']) { srLocalNote(l, ''); srLocalNote('ok|' + l, ''); } renderTxBox(); toast('The next dictation checks again.'); });
   if ($('setDictVoice')) { $('setDictVoice').value = settings.dictVoice ? '1' : '0'; $('setDictVoice').addEventListener('change', ev => { settings.dictVoice = ev.target.value === '1'; saveSettings(); renderTxBox(); }); }
   if ($('dictVoiceRetry')) $('dictVoiceRetry').addEventListener('click', () => { setDictVoiceMode(''); renderTxBox(); toast('The next dictation tries again.'); });
   $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); });

@@ -224,7 +224,7 @@ function renderEntry() {
       '<div class="speed">' + [0.5, 0.75, 1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
       '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
   }
-  html += '<div class="txcard"><div class="t"><span>Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate">' + (dictOn ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write, or tap Dictate…">' + esc(dictOn && dictEntry === e ? dictText('') : e.text || '') + '</textarea></div>';
+  html += '<div class="txcard' + (dictOn && dictEntry === e ? ' listening' : '') + '"><div class="t"><span class="tlabel">' + (dictOn && dictEntry === e ? '<i class="ldot"></i>Listening' : 'Text') + '</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate">' + (dictOn ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write, or tap Dictate…">' + esc(dictOn && dictEntry === e ? dictText('') : e.text || '') + '</textarea></div>';
   html += '<div class="txcard"><div class="t"><span>Photos</span></div><div class="pics" id="picGrid"></div></div>';
   body.innerHTML = html;
   renderPics();
@@ -250,6 +250,15 @@ let dictRec = null, dictOn = false, dictBase = '', dictFinal = '', dictSess = ''
 function dictLang() { const l = settings.lang; return l === 'de' ? 'de-DE' : l === 'en' ? 'en-US' : (navigator.language && /^(de|en)/.test(navigator.language) ? navigator.language : 'de-DE'); }
 // the interim words repeat the running session's words: overlaid, never appended
 const dictText = interim => { const t = joinOverlap(joinOverlap(dictFinal, dictSess), interim || ''); return dictBase + t + (interim ? ' ' : ''); };
+// while dictating, the text card says so: a red dot, "Listening", and the field invites speech
+function renderDictState() {
+  const nt = $('noteText'), card = nt && nt.closest('.txcard'); if (!card) return;
+  const on = dictOn && dictEntry === curEntry;
+  card.classList.toggle('listening', on);
+  const lab = card.querySelector('.tlabel'); if (lab) lab.innerHTML = on ? '<i class="ldot"></i>Listening' : 'Text';
+  nt.placeholder = on ? 'Listening… speak now' : 'Write, or tap Dictate…';
+  const b = $('dictBtn'); if (b && !clipRec) b.textContent = on ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate';
+}
 function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictText(interim); nt.scrollTop = nt.scrollHeight; }
 async function startDictation() {
   const e = curEntry; if (!e || locked || passive || recording || dictOn) return;
@@ -257,14 +266,30 @@ async function startDictation() {
   if (!SR) { popup('No dictation here', 'This browser has no built-in speech recognition. Use Chrome or Safari, the keyboard\'s microphone key, or choose a key or the cloud under Menu, Transcription.', [{ label: 'OK', cls: 'primary' }]); return; }
   commitText(); keepAwake();
   const cur = (e.text || '').replace(/\s+$/, '');
-  dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictSess = ''; dictEntry = e; dictOn = true;
-  const b = $('dictBtn'); if (b) b.textContent = '■ Stop';
+  dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictSess = ''; dictEntry = e; dictOn = true; dictHeardAny = false;
+  renderDictState();
   dictLocal = await srLocalReady(dictLang());                       // recognition on the phone itself, where Chrome offers it
   if (!dictOn || dictEntry !== e) return;
   const plan = dictVoicePlan();
   if (plan !== 'no') await startDictVoice(e, plan);                 // the voice is recorded alongside, where the phone can
   if (!dictOn || dictEntry !== e) { stopDictVoice(true); return; }
   runDictSR(e);
+  const trying = (dictAudio && dictVoiceMode() !== dictAudio.mode) || (dictLocal && !srLocalGet('ok|' + dictLang()));
+  clearTimeout(dictProbe);
+  if (trying) dictProbe = setTimeout(() => { if (dictOn && dictEntry === e && !dictHeardAny) dictFallBackSimple(); }, 4000);
+}
+// The phone gave no word for 4 s while the app tried something new on it (the voice recorded
+// alongside, or recognition on the device): dictation goes back to the plain way that works, and
+// the phone keeps it so (Menu, Transcription can try again). This needs no measurement at all.
+let dictProbe = null, dictHeardAny = false;
+function dictFallBackSimple() {
+  const e = dictEntry; if (!dictOn || !e) return;
+  if (dictLocal) { dictLocal = false; srLocalNote(dictLang(), 'failed'); }
+  if (dictAudio) { setDictVoiceMode('no'); stopDictVoice(false); }
+  const r = dictRec; dictRec = null; if (r) { try { r.abort(); } catch (err) {} }
+  dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
+  setTimeout(() => { if (dictOn && dictEntry === e && !dictRec) runDictSR(e); }, 400);
+  toast('Dictation switched to the simple mode on this phone. Please speak again.');
 }
 // one recognition session after the other (Android ends one after every pause: on again at once)
 function runDictSR(e) {
@@ -279,7 +304,7 @@ function runDictSR(e) {
     // longer than the one before ("dies", "dies ist", "dies ist ein"): folded on their overlap
     let finals = '', interim = '';
     for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals = joinOverlap(finals, t); else interim = joinOverlap(interim, t); }
-    if (dictAudio && (finals || interim).trim()) dictAudio.heard = true;
+    if ((finals || interim).trim()) { dictHeardAny = true; if (dictAudio) dictAudio.heard = true; if (local) srLocalNote('ok|' + r.lang, '1'); }
     dictSess = finals; dictApply(interim); scheduleDictSave();
   };
   r.onerror = ev => {
@@ -379,11 +404,14 @@ async function startDictVoice(e, mode) {
   let ended = false;
   r.onstop = async () => {
     if (ended) return; ended = true; stopTracks();
+    // a recording that compresses to almost nothing is silence (another app had the microphone):
+    // about 300 bytes a second, where a voice gives several thousand
+    if (!seg.drop && seg.judge) { const bytes = seg.chunks.reduce((a, c) => a + c.size, 0), secs = Math.max(1, (Date.now() - seg.start) / 1000); if (secs >= 2 && bytes / secs < 1000) { seg.drop = true; setDictVoiceMode('no'); toast('The voice could not be recorded on this phone while it writes. Dictation writes text only from now on.'); } }
     try { if (seg.drop) { const k = pendingSegList.indexOf(seg); if (k >= 0) pendingSegList.splice(k, 1); seg.done = true; await partsDel(seg.id).catch(() => {}); } else await finishSegment(seg); }
     finally { dictAudioBusy--; }
   };
   try { r.start(CHUNK_MS); } catch (err) { stopTracks(); return; }
-  const v = dictAudio = { stream, track: stream.getAudioTracks()[0], rec: r, seg, mode, clones: [], heard: false, voiced: 0, silent: 0, ok: false, ctx: null, timer: null };
+  const v = dictAudio = { stream, track: stream.getAudioTracks()[0], rec: r, seg, mode, clones: [], heard: false, voiced: 0, silent: 0, ok: false, ctx: null, timer: null, measured: false };
   // the watch: is there voice in the recording, and does the recognition hear it?
   try {
     const ctx = v.ctx = new (self.AudioContext || self.webkitAudioContext)(); if (ctx.state !== 'running') ctx.resume().catch(() => {});
@@ -391,6 +419,7 @@ async function startDictVoice(e, mode) {
     const data = new Uint8Array(an.fftSize);
     v.timer = setInterval(() => {
       if (dictAudio !== v || ctx.state !== 'running') return;
+      v.measured = true;
       an.getByteTimeDomainData(data); let sum = 0; for (let i = 0; i < data.length; i++) { const x = (data[i] - 128) / 128; sum += x * x; }
       const rms = Math.sqrt(sum / data.length);
       if (rms > 0.02) { v.voiced += 100; seg.voiced = v.voiced; }
@@ -419,7 +448,8 @@ function stopDictVoice(drop) {
   const v = dictAudio; if (!v) return; dictAudio = null;
   clearInterval(v.timer); if (v.ctx) { try { v.ctx.close(); } catch (err) {} }
   for (const t of v.clones) { try { t.stop(); } catch (err) {} }
-  v.seg.drop = !!drop || v.voiced < 800;                 // nothing said: nothing kept
+  v.seg.drop = !!drop || (v.measured ? v.voiced < 800 : Date.now() - v.seg.start < 1500);      // nothing said: nothing kept
+  v.seg.judge = !v.measured && v.heard;                    // not measured: judged by its size when it ends
   dictAudioBusy++; pendingSegList.push(v.seg);
   if (v.rec.state === 'inactive') { v.rec.onstop(); return; }
   try { v.rec.stop(); } catch (err) { v.rec.onstop(); }
@@ -457,7 +487,7 @@ function stopDictation() {
   if (!dictOn) return;
   if (clipRec) { dictOn = false; const c = clipRec; clipRec = null; clipStream = null; dictEntry = null; try { c.stop(); } catch (e) {} return; }
   dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
-  clearTimeout(dictSaveTimer); dictSaveTimer = null;
+  clearTimeout(dictSaveTimer); dictSaveTimer = null; clearTimeout(dictProbe);
   stopDictVoice(false);
   if (!recording) releaseWake();
   const e = dictEntry; dictEntry = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
@@ -465,7 +495,7 @@ function stopDictation() {
   // when dictation stops, and the final result for it arrives after the stop (ignored)
   const nt = $('noteText');
   if (e) { e.text = (curEntry === e && nt && nt.dataset.id === e.id ? nt.value : dictBase + dictFinal).replace(/\s+$/, ''); if (nt && curEntry === e) nt.value = e.text; persist(e); renderHome(); }
-  const b = $('dictBtn'); if (b) b.textContent = '🎙 Dictate';
+  renderDictState();
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) return; if (dictOn) stopDictation(); commitTitle(); commitText(); });
 // Open the Claude app (or claude.ai) on a new chat, with text as the first message when given.

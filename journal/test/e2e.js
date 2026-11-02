@@ -397,6 +397,34 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p8.click('#dictBtn'); await sleep(300);
   await p8.evaluate(() => back()); await p8.waitForSelector('#home:not([hidden])'); await p8.click('#menuBtn'); await p8.waitForSelector('#setSrLocal');
   check((await p8.textContent('#txBox')).includes('German: did not work') && await p8.isVisible('#srLocalRetry'), 'menu shows the state per language and offers to check again');
+  // 12. what happened on a real phone: the Google tone, then no words, and the level cannot be measured
+  // (no AudioContext): within 4 s dictation goes back to the plain way and the words come
+  const ctx9 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx9.grantPermissions(['microphone']);
+  await ctx9.addInitScript(() => {
+    window.AudioContext = window.webkitAudioContext = function () { throw new Error('no audio context here'); };
+    window.__made = [];
+    // beside the recording, or on the device, the recognition hears nothing; alone it hears
+    class FakeSR { constructor() { window.__made.push(this); } start(track) { const me = this; this.__track = !!track; const deaf = this.processLocally || window.__recording; if (deaf) return; setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: 'jetzt geht es wieder' }], { isFinal: true })] }), 200); } stop() { const me = this; setTimeout(() => me.onend && me.onend(), 50); } abort() {} }
+    FakeSR.prototype.processLocally = false;
+    FakeSR.available = async () => 'available'; FakeSR.install = async () => true;
+    window.SpeechRecognition = window.webkitSpeechRecognition = FakeSR;
+    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async c => { const s = await gum(c); window.__recording = true; for (const t of s.getTracks()) { const st = t.stop.bind(t); t.stop = () => { window.__recording = false; st(); }; } return s; };
+  });
+  const p9 = await ctx9.newPage(); p9.on('pageerror', e => errors.push('p9 pageerror: ' + e.message));
+  await p9.goto(BASE); await p9.waitForFunction(() => window.journalDebug && journalDebug.entries);
+  await p9.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.lang = 'de'; saveSettings(); });
+  await p9.click('#recBtn'); await p9.waitForSelector('#noteText'); await sleep(800);
+  check(await p9.evaluate(() => document.querySelector('.txcard.listening') && document.querySelector('.tlabel').textContent.includes('Listening') && document.getElementById('noteText').placeholder.includes('speak now')), 'while dictating the text card shows "Listening"');
+  await p9.waitForFunction(() => document.getElementById('noteText').value.includes('jetzt geht es wieder'), null, { timeout: 9000 }).catch(() => {});
+  const f9 = await p9.evaluate(() => ({ text: document.getElementById('noteText').value, voice: localStorage.getItem('journal-dict-voice'), local: localStorage.getItem('journal-sr-local|de-DE'), on: dictOn, rec: !!dictAudio, toast: document.getElementById('toast').textContent }));
+  console.log('no words, no measuring', JSON.stringify(f9));
+  check(f9.text.includes('jetzt geht es wieder') && f9.voice === 'no' && f9.local === 'failed' && f9.on && !f9.rec, 'no word within 4 s: back to plain dictation, the words come, remembered for this phone');
+  await p9.click('#dictBtn'); await sleep(300);
+  check(await p9.evaluate(() => !document.querySelector('.txcard.listening') && document.querySelector('.tlabel').textContent === 'Text'), 'after Stop the card is back to "Text"');
+  await p9.click('#entryBack'); await p9.waitForSelector('#home:not([hidden])');
+  await p9.click('#recBtn'); await p9.waitForSelector('#noteText'); await sleep(1500);
+  check(await p9.evaluate(() => dictOn && !dictAudio && window.__made[window.__made.length - 1].processLocally !== true && document.getElementById('noteText').value.includes('jetzt geht es wieder')), 'next dictation on this phone: plain at once, words at once');
   await browser2.close();
   // a phone where the recognition takes the microphone and the recording beside it stays silent
   // (what happened before on Android: text came, the audio played nothing): no silent audio is kept
@@ -417,6 +445,17 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   const e7 = await p7.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); return { segs: e.segs.length, text: e.text, parts: 0 }; });
   console.log('silent recording', JSON.stringify(f7), JSON.stringify(e7));
   check(f7.mode === 'no' && f7.dict && !f7.voice && e7.segs === 0 && e7.text.includes('Aufnahme ist stumm') && !(await p7.isVisible('#playBtn')), 'silent recording beside the recognition: noticed, no silent audio kept, the text stays');
+  // silence judged by size when the level cannot be measured
+  const ctx10 = await browser3.newContext({ viewport: { width: 400, height: 800 } }); await ctx10.grantPermissions(['microphone']);
+  await ctx10.addInitScript(() => { window.AudioContext = window.webkitAudioContext = function () { throw new Error('no audio context here'); }; });
+  await ctx10.addInitScript(fakeSR, 'Text kommt, Aufnahme stumm, nicht messbar');
+  const p10 = await ctx10.newPage(); p10.on('pageerror', e => errors.push('p10 pageerror: ' + e.message));
+  await p10.goto(BASE); await p10.waitForFunction(() => window.journalDebug && journalDebug.entries);
+  await p10.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
+  await p10.click('#recBtn'); await p10.waitForSelector('#noteText'); await sleep(4000); await p10.click('#dictBtn'); await sleep(1500);
+  const f10 = await p10.evaluate(() => ({ mode: localStorage.getItem('journal-dict-voice'), segs: journalDebug.entries.find(x => !x.deleted).segs.length, text: journalDebug.entries.find(x => !x.deleted).text }));
+  console.log('silent by size', JSON.stringify(f10));
+  check(f10.mode === 'no' && f10.segs === 0 && f10.text.includes('nicht messbar'), 'a silent recording is recognised by its size and not kept, the text stays');
   await browser3.close();
 
   console.log('\nerrors:', errors.length ? errors : 'none');
