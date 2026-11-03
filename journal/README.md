@@ -4,18 +4,15 @@ Long voice memos, transcribed (German and English), encrypted on the device, loc
 optional encrypted cloud copy. A web app without build step, like Snapdoc and Brain Relieve.
 Concept and security model: [CONCEPT.md](CONCEPT.md).
 
-Without any set-up the app runs fully on the device. Microphone: record, for as long as you
-like; the audio stays encrypted and playable under the text. Pen: write. Inside an entry,
-Dictate adds text through the phone's own speech recognition, and the voice is recorded alongside
-and kept as the entry's audio (play, 10 s back and on, 0.5 to 2 times speed). Newer Chrome feeds
-the recognition from that recording; a phone that cannot do both is noticed once and dictates
-text only (Menu, Transcription, "Try again"). Smoother and
-also free: engine "Keyboard microphone" in Menu, Transcription. The microphone then opens the
-text window with the keyboard up, and Gboard's voice typing listens: on the phone itself on
-newer phones, through pauses, without tones. For recordings that become
-text, with pauses and all, add a key (below): two minutes. Folders sort entries; photos (camera
-or gallery, shrunk on the phone, location data dropped) sit in every entry, encrypted like
-everything else. "Select" in the header picks several entries to delete or move at once.
+Without any set-up the app runs fully on the device. Microphone: records your voice, for as
+long as you like; it stays encrypted and playable in the entry (play, 10 s back and on, 0.5 to 2
+times speed, save or share the file). Its text comes online once a transcription key is set
+(below, two minutes), for every recording made before as well. Pen: write. Inside an entry,
+Dictate writes with the phone's own speech recognition (free, no recording; on Android it stops
+at pauses). Where a phone has shown it can listen while it records, the recording writes live
+too; the voice always comes first. Folders sort entries; photos (camera or gallery, shrunk on
+the phone, location data dropped) sit in every entry, encrypted like everything else. "Select"
+in the header picks several entries to delete or move at once.
 
 ## Transcription with a key (2 minutes)
 
