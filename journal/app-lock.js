@@ -161,7 +161,7 @@ function renderTxBox() {
   const box = $('txBox'); if (!box) return;
   const eng = settings.engine;
   let engBox = '';
-  if (eng === 'phone') engBox = '<div class="hint">The microphone opens the text window and the phone\'s own speech recognition (Google on Android, Apple on iPhone) writes as you speak. Free, no key, no account; that audio goes to Google or Apple. No audio file is kept, and it pauses briefly whenever you do.</div>';
+  if (eng === 'phone') engBox = '<div class="hint">The microphone records your voice (kept encrypted, playable). Text for it comes live only where the phone can listen while it records; for text online, like in the Claude app, choose "Own key". Inside an entry, Dictate writes with the phone\'s own recognition (free, no recording; on Android it stops at pauses).</div>';
   else if (eng === 'keyboard') engBox = '<div class="hint">The microphone opens the text window with the keyboard up; tap the keyboard\'s own microphone key and talk. Gboard\'s voice typing runs on the phone itself on newer phones, keeps going through pauses and has no start and stop tones. Free. No audio file is kept.</div>';
   else if (eng === 'claude') engBox = '<div class="hint">The microphone opens a new chat in the Claude app, where you dictate. Paste the result into an entry with the pen. A workaround until a key is set.</div>';
   else if (eng === 'key') engBox = stt ? '<div class="statecard"><div class="t">✓ ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Memos and dictated notes go straight from this phone to the service and the text comes back. The service may keep audio for a while under its own terms.</div></div><button class="btn quiet" id="sttOff">Remove the key</button>'

@@ -36,7 +36,7 @@ async function startRecording() {
   keepAwake(); startMeter(stream);
   recTick = setInterval(renderRecTime, 250);
   startSegment();
-  if (settings.engine === 'phone' && settings.transcribe !== 'off') startLive();
+  if (settings.engine === 'phone' && settings.transcribe !== 'off' && dictVoiceProven()) startLive();      // only where this phone has shown it can listen while it records: the voice comes first
 }
 // ---------- liveRec recognition with the phone's own speech recognition ----------
 // Runs beside the recorder. Final results are collected per segment; a segment that ends takes
@@ -67,7 +67,7 @@ function takeLive() { if (!liveRec) return undefined; const t = joinOverlap(live
 function stopLive() { if (!liveRec) return; liveRec.on = false; pauseLive(); }
 function renderLive() {
   const el = $('recLive'); if (!el) return;
-  if (!liveRec) { el.hidden = !(settings.engine === 'phone'); el.className = 'reclive err'; el.textContent = 'Audio only: this phone cannot recognise speech while it records.'; return; }
+  if (!liveRec) { el.hidden = txAvailable(); el.className = 'reclive'; el.textContent = 'Your voice is being recorded. ' + (settings.engine === 'cloud' ? 'Sign in under Menu, Cloud, for its text.' : 'Its text comes online once a transcription key is set (Menu, Transcription).'); return; }
   el.hidden = false;
   if (liveRec.err && !liveRec.on) { el.textContent = 'No live text: ' + liveRec.err + '. The audio is kept. For text with the phone engine, stop and TAP the microphone to dictate instead; a key or the cloud can transcribe this audio later.'; el.className = 'reclive err'; return; }
   const t = joinOverlap(joinOverlap(liveRec.text, liveRec.sess), liveRec.interim);

@@ -182,9 +182,11 @@ $('noteBtn').addEventListener('click', () => newEntry());
 // it follows the engine: the phone's recognition (text live), the Claude app (a new chat opens
 // there), or a key / the cloud (the audio records in the background, each part's text arrives
 // below as it is done, the recording stays playable).
+// The microphone records your voice: always kept, encrypted, playable. Its text comes online
+// (own key or cloud), or live from the phone where the phone can listen while it records.
+// Inside an entry, Dictate writes with the phone's recognition without recording.
 $('recBtn').addEventListener('click', () => {
   if (settings.engine === 'claude') { openClaude(''); return; }
-  if (settings.engine === 'phone') { newEntry({ dictate: true }); return; }
   if (settings.engine === 'keyboard') { newEntry({ keyboard: true }); return; }
   startRecording();
 });
@@ -206,6 +208,13 @@ function leaveEntry() {
   const e = curEntry; curEntry = null;
   if (e && !e.deleted && !(e.text || '').trim() && !(e.title || '').trim() && !(e.segs && e.segs.length) && !(e.pics && e.pics.length) && e.state !== 'rec' && !pendingSegList.some(s => s.entry === e.id && !s.drop)) { e.deleted = true; e.del_at = Date.now(); persist(e); renderHome(); }      // an entry left empty is not kept
 }
+// the audio card: player, 10 s back and on, speeds, and the state of its text
+function playerHtml(e) {
+  return '<div class="player"><div class="row"><button class="skip" id="skipBack" aria-label="10 seconds back">↺10</button><button class="play" id="playBtn" aria-label="Play">▶</button><button class="skip" id="skipFwd" aria-label="10 seconds on">10↻</button><input type="range" id="seek" min="0" max="' + Math.max(1, Math.round(entryDur(e))) + '" value="0" step="250"></div>' +
+      '<div class="times"><span id="tCur">0:00</span><span id="tTot">' + esc(fmtDur(entryDur(e))) + '</span></div>' +
+      '<div class="speed">' + [0.5, 0.75, 1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
+      '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
+}
 function renderEntry() {
   const e = curEntry; if (!e || current() !== 'entry') return;
   const ti = $('entryTitle'); if (document.activeElement !== ti) ti.value = e.title || '';
@@ -215,15 +224,14 @@ function renderEntry() {
   const di = $('entryDateIn'); if (document.activeElement !== di) di.value = toLocalInput(e.created);
   $('entryFolder').textContent = '📁 ' + (e.folder || 'No folder'); $('entryFolder').classList.toggle('on', !!e.folder);
   const body = $('entryBody'), nt = $('noteText');
-  if (nt && document.activeElement === nt) { renderTxState(); return; }                               // never redraw under a moving cursor
+  if (nt && document.activeElement === nt) {                                                            // never redraw under a moving cursor
+    if (segs.length && !$('playBtn')) { nt.closest('.txcard').insertAdjacentHTML('beforebegin', playerHtml(e)); wirePlayer(); }      // a recording that just arrived still gets its player
+    else if ($('seek')) { $('seek').max = Math.max(1, Math.round(entryDur(e))); $('tTot').textContent = fmtDur(entryDur(e)); }
+    renderTxState(); return;
+  }
   commitText();                                                                                         // nothing typed is lost to a redraw                               // never redraw under a moving cursor
   let html = '';
-  if (segs.length) {
-    html += '<div class="player"><div class="row"><button class="skip" id="skipBack" aria-label="10 seconds back">↺10</button><button class="play" id="playBtn" aria-label="Play">▶</button><button class="skip" id="skipFwd" aria-label="10 seconds on">10↻</button><input type="range" id="seek" min="0" max="' + Math.max(1, Math.round(entryDur(e))) + '" value="0" step="250"></div>' +
-      '<div class="times"><span id="tCur">0:00</span><span id="tTot">' + esc(fmtDur(entryDur(e))) + '</span></div>' +
-      '<div class="speed">' + [0.5, 0.75, 1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
-      '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
-  }
+  if (segs.length) html += playerHtml(e);
   html += '<div class="txcard' + (dictOn && dictEntry === e ? ' listening' : '') + '"><div class="t"><span class="tlabel">' + (dictOn && dictEntry === e ? '<i class="ldot"></i>Listening' : 'Text') + '</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate">' + (dictOn ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write, or tap Dictate…">' + esc(dictOn && dictEntry === e ? dictText('') : e.text || '') + '</textarea></div>';
   html += '<div class="txcard"><div class="t"><span>Photos</span></div><div class="pics" id="picGrid"></div></div>';
   body.innerHTML = html;
@@ -274,7 +282,7 @@ async function startDictation() {
   if (plan !== 'no') await startDictVoice(e, plan);                 // the voice is recorded alongside, where the phone can
   if (!dictOn || dictEntry !== e) { stopDictVoice(true); return; }
   runDictSR(e);
-  const trying = (dictAudio && dictVoiceMode() !== dictAudio.mode) || (dictLocal && !srLocalGet('ok|' + dictLang()));
+  const trying = (dictAudio && !dictVoiceProven()) || (dictLocal && !srLocalGet('ok|' + dictLang()));
   clearTimeout(dictProbe);
   if (trying) dictProbe = setTimeout(() => { if (dictOn && dictEntry === e && !dictHeardAny) dictFallBackSimple(); }, 4000);
 }
@@ -376,7 +384,10 @@ function scheduleDictSave() {
 // come), gives the microphone back to the recognition and remembers it for this phone.
 const DICT_VOICE_KEY = 'journal-dict-voice';            // '' not known yet, 'track', 'both', 'no'
 const dictVoiceMode = () => { try { return localStorage.getItem(DICT_VOICE_KEY) || ''; } catch (e) { return ''; } };
-const setDictVoiceMode = m => { try { if (m) localStorage.setItem(DICT_VOICE_KEY, m); else localStorage.removeItem(DICT_VOICE_KEY); } catch (e) {} };
+const setDictVoiceMode = m => { try { if (m) localStorage.setItem(DICT_VOICE_KEY, m); else localStorage.removeItem(DICT_VOICE_KEY); localStorage.removeItem(DICT_VOICE_KEY + '-ok'); } catch (e) {} };
+// "what to try next" is not "it works": only a dictation with words and voice together proves it
+const dictVoiceProven = () => { try { return localStorage.getItem(DICT_VOICE_KEY + '-ok') === dictVoiceMode() && !!dictVoiceMode() && dictVoiceMode() !== 'no'; } catch (e) { return false; } };
+const proveDictVoice = m => { setDictVoiceMode(m); try { localStorage.setItem(DICT_VOICE_KEY + '-ok', m); } catch (e) {} };
 let srTrack = null, dictAudio = null, dictAudioBusy = 0;
 // does the recognition take a recorded track? (asked with a wrong argument: only a browser that knows the form refuses it)
 function srTakesTrack() {
@@ -425,7 +436,7 @@ async function startDictVoice(e, mode) {
       if (rms > 0.02) { v.voiced += 100; seg.voiced = v.voiced; }
       if (rms < 0.002) v.silent += 100;
       if (v.ok) return;
-      if (v.heard && v.voiced >= 1500) { v.ok = true; setDictVoiceMode(v.mode); return; }        // both work on this phone
+      if (v.heard && v.voiced >= 1500) { v.ok = true; proveDictVoice(v.mode); return; }          // both work on this phone
       if (!v.heard && v.voiced >= 5000) { dictVoiceFailed('sr'); return; }                       // voice in the recording, no words: recognition cannot hear
       if (v.heard && !v.voiced && v.silent >= 4000) dictVoiceFailed('silent');                    // words, but the recording is silent
     }, 100);
@@ -518,14 +529,14 @@ function renderTxState() {
   let msg = '', cls = '';
   if (s === 'busy') { msg = 'Transcribing… ' + done + ' of ' + segs.length + ' parts done; the text is added below.'; cls = 'busy'; }
   else if (s === 'fail') { const f = segs.find(g => g.st === 'fail'); msg = 'Transcription failed: ' + (f && f.err || 'unknown error') + (txFailUntil(e) ? ' · trying again ' + txFailUntil(e) : ''); cls = 'fail'; }
-  else if (s === 'todo') msg = e.tx ? (txAvailable() ? 'Waiting to transcribe…' : settings.engine === 'phone' ? 'Stored audio needs a key or the cloud (Menu, Transcription).' : 'Set up transcription in the menu.') : 'Not transcribed; the recording is stored encrypted here.' + (settings.engine === 'phone' ? ' The phone only transcribes live while recording; a key or the cloud can do it afterwards.' : '');
+  else if (s === 'todo') msg = txAvailable() ? (e.tx ? 'Waiting to transcribe…' : 'Not transcribed yet.') : 'Your voice, stored encrypted. Its text comes online once a transcription key is set.';
   else if (s === 'done') msg = segs.every(g => g.live) ? 'Your voice, stored encrypted. The text below was written while you spoke.' : 'Transcribed; the text is below.';
   else if (s === 'off') msg = 'Audio only.';
   if (e.state === 'rec') { msg = 'Still recording.'; cls = ''; }
   el.textContent = msg; el.className = 'st ' + cls;
   if (segs.length > 1) { const row = document.createElement('div'); row.className = 'segrow'; segs.forEach((g, i) => { const sp = document.createElement('span'); sp.className = g.st === 'done' ? 'done' : g.st === 'busy' ? 'busy' : g.st === 'fail' ? 'fail' : ''; sp.textContent = (i + 1) + ' · ' + fmtDur(g.dur); row.appendChild(sp); }); el.appendChild(row); }
   bt.innerHTML = '';
-  if (e.state !== 'rec' && segs.some(g => g.st !== 'done')) { const b = document.createElement('button'); b.textContent = s === 'busy' ? 'Transcribing…' : s === 'fail' ? 'Try again' : txAvailable() ? 'Transcribe' : 'How to get text'; b.disabled = s === 'busy'; b.addEventListener('click', () => wantTranscribe(e)); bt.appendChild(b); }
+  if (e.state !== 'rec' && segs.some(g => g.st !== 'done')) { const b = document.createElement('button'); b.textContent = s === 'busy' ? 'Transcribing…' : s === 'fail' ? 'Try again' : txAvailable() ? 'Transcribe' : 'Get text online'; b.disabled = s === 'busy'; b.addEventListener('click', () => wantTranscribe(e)); bt.appendChild(b); }
 }
 function commitTitle() { const e = curEntry; if (!e) return; const v = $('entryTitle').value.trim(); if (v !== (e.title || '')) { e.title = v; persist(e); renderHome(); } }
 function commitText() {
@@ -549,7 +560,7 @@ $('entryMore').addEventListener('click', () => {
   if (dictOn) stopDictation(); commitTitle(); commitText();
   const btns = [];
   if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) });
-  if (e.segs && e.segs.length) btns.push({ label: 'Share the audio', fn: () => shareAudio(e) });
+  if (e.segs && e.segs.length) btns.push({ label: 'Save or share the audio file', fn: () => shareAudio(e) });
   if (e.segs && e.segs.some(g => g.st === 'done')) btns.push({ label: 'Transcribe again', fn: () => popup('Transcribe again?', 'The recording is transcribed anew and the new text is added below what is there.', [{ label: 'Transcribe again', cls: 'primary', fn: () => retranscribe(e) }, { label: 'Cancel', cls: 'quiet' }]) });
   btns.push({ label: 'Delete entry', cls: 'danger', fn: () => deleteEntry(e) });
   btns.push({ label: 'Cancel', cls: 'quiet' });

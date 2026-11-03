@@ -226,6 +226,10 @@ See `README.md`.
 
 ## History
 
+- v24 (2026-11-03): the microphone always records the voice (kept, playable), whatever the
+  engine (except Claude and keyboard); its text comes online with a key, or live only where the
+  phone has shown it can listen while it records (the voice comes first). Dictate inside an entry
+  stays for the phone's live text. "Get text online" explains the key in the entry.
 - v23 (2026-11-02): dictation was silent on a real phone (the Google tone, then no words): when the
   app tries the voice recording or on-device recognition and no word comes within 4 s, dictation
   goes back to the plain way and the phone keeps it so; a silent recording is also recognised by

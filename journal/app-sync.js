@@ -146,7 +146,7 @@ function askTranscribe(e) {
 }
 function wantTranscribe(e) {
   if (!txAvailable()) {
-    if (settings.engine === 'phone' || settings.engine === 'keyboard' || settings.engine === 'claude') popup('This recording has no text yet', 'The phone\'s speech recognition cannot read a stored recording; on most phones it cannot even listen while the phone records. For text with the phone engine, TAP the microphone and dictate (that runs as long as you like). To turn this recording into text, choose "Own key" or "Cloud function" under Menu, Transcription.', [{ label: 'Open the menu', cls: 'primary', fn: openSheet }, { label: 'OK', cls: 'quiet' }]);
+    if (settings.engine !== 'cloud') popup('Text online for your recordings', 'Online transcription, like in the Claude app, needs a key from a transcription service. Mistral (Paris) understands German and English and costs a few cents per hour of audio: console.mistral.ai, sign up, choose pay-as-you-go (not the free Experiment plan, which trains on your audio), API Keys, Create API Key. Paste it here under Menu, Transcription. Then every recording gets its text, this one too. Never paste the key into a chat.', [{ label: 'Enter a key', cls: 'primary', fn: () => { settings.engine = 'key'; saveSettings(); openSheet(); } }, { label: 'Later', cls: 'quiet' }]);
     else { toast(settings.engine === 'key' ? 'Enter your key under Menu, Transcription.' : 'Sign in under Menu, Cloud.'); openSheet(); }
     return;
   }
