@@ -700,7 +700,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v48</div>
+        <div class="version">v49</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -808,6 +808,7 @@
       <span id="syncHint"></span>
       <input id="syncEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com">
       <button id="syncSend">🔄 Enable sync</button>
+      <button id="syncWatch" hidden>⌚ Pair a watch</button>
       <button id="syncOff" hidden>Sign out</button>
     </div>
     <div class="backuprow" id="catSettings">
@@ -2331,6 +2332,7 @@
     $('syncEmail').hidden = signedIn;
     $('syncSend').hidden = signedIn;
     $('syncOff').hidden = !signedIn;
+    $('syncWatch').hidden = !signedIn;
     if (!signedIn) { $('syncHint').textContent = linkMsg || 'Sync across devices:'; return; }
     const okAt = +localStorage.getItem('braindump.lastOk.' + session.uid) || 0;
     const mins = okAt ? Math.floor((Date.now() - okAt) / 60000) : null;
@@ -2351,6 +2353,17 @@
   $('syncOff').addEventListener('click', () => {
     dropSession();
     renderSyncRow();
+  });
+  // a watch (or any second device) signs in with this code instead of an email link; it then
+  // writes and reads this account's thoughts. The code lives ten minutes and works once.
+  $('syncWatch').addEventListener('click', async () => {
+    if (!(await ensureSession())) { flash('Offline. Try again later.'); return; }
+    try {
+      const code = await rpc('br_device_code', {});
+      showModal('Pair a watch', 'On the watch: open Brain Relieve and type this code. It works once, for ten minutes.', 'Done', () => {}, { code });
+    } catch (e) {
+      flash(/404|br_device_code/.test(e.message) ? 'Server not set up for it yet (supabase-watch-v49.sql).' : 'Could not make a code: ' + e.message);
+    }
   });
 
   // ---------- boot ----------
