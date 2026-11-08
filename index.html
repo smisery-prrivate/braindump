@@ -99,6 +99,10 @@
   #quickCats { flex-basis: 100%; padding-top: 6px; border-top: 1px solid #f1f5f9; }
   #modalCats { margin: 0 0 12px; }
   #modalCats[hidden] { display: none; }
+  #modalRepeat { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; }
+  #modalRepeat[hidden] { display: none; }
+  #modalRepeat .rl { font-size: 13px; color: var(--muted); margin-right: 2px; }
+  .cchip.rchip { --cat: #0d9488; padding: 5px 10px; }
   .cchip {
     flex: none;
     display: inline-flex;
@@ -700,7 +704,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v49</div>
+        <div class="version">v50</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -755,6 +759,7 @@
       <textarea id="modalInput" rows="2" hidden></textarea>
       <div id="modalCompare" hidden></div>
       <div id="modalCats" hidden></div>
+      <div id="modalRepeat" hidden></div>
       <div id="modalCode" hidden></div>
       <button id="modalOk" class="bigbtn"></button>
       <button id="modalAlt" class="bigbtn altbtn" hidden></button>
@@ -862,6 +867,27 @@
   const NAME_KEY = 'braindump.myName';
   const myName = () => localStorage.getItem(NAME_KEY) || (session && session.email ? session.email.split('@')[0] : '');
   const catLabel = c => c.name + (isShared(c) ? ' · shared' : '');
+  // ---------- repeating thoughts (v50): it.repeat = 'd' daily or 'w0'..'w6' weekly (0 = Sunday) ----------
+  // A repeating thought is ONE item. When its period starts it comes back into the archive (even if
+  // it was ticked off), never into the five or the overflow, and it never fades into the vault.
+  // it.cycle = start of the period it last came back for, so it comes back once per period only.
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function repeatDue(r, now) {
+    const d = new Date(now || Date.now());
+    d.setHours(0, 0, 0, 0);
+    if (r && r[0] === 'w') d.setDate(d.getDate() - ((d.getDay() - (+r.slice(1)) + 7) % 7));
+    return d.getTime();
+  }
+  const repeatLabel = r => r === 'd' ? 'daily' : (r && r[0] === 'w' ? 'every ' + WEEKDAYS[+r.slice(1)] : '');
+  function setRepeat(it, r) {
+    if (r) { it.repeat = r; it.cycle = repeatDue(r); it.vault = false; }
+    else { delete it.repeat; delete it.cycle; }
+  }
+  // ids whose comeback still has to reach the server (kept across reloads, the watch reads the server)
+  const PUSH_KEY = 'braindump.pushIds';
+  let pushIds;
+  try { pushIds = new Set(JSON.parse(localStorage.getItem(PUSH_KEY) || '[]')); } catch (e) { pushIds = new Set(); }
+  const savePushIds = () => localStorage.setItem(PUSH_KEY, JSON.stringify([...pushIds]));
   // sticky: the colour the next dumps get; a tap on a chip sets it, no chip = no colour
   function stickyCat() {
     let st = null;
@@ -921,13 +947,31 @@
         it.created = now;
         changed = true;
       }
-      if (!it.deleted && !it.vault && !it.priority && !it.guest && !it.compass && (now - it.created) >= EXPIRE_DAYS * DAY) {
+      if (it.repeat) {
+        const due = repeatDue(it.repeat, now);
+        if ((it.cycle || 0) < due) {
+          it.cycle = due;
+          const active = !it.deleted && !it.vault && (it.priority || it.compass || (it.guest && (now - it.guest) < GUEST_MS));
+          if (!active) {
+            // back on top of the archive, fresh; ticked off or faded doesn't matter
+            it.deleted = false; delete it.deletedBy; it.vault = false;
+            it.priority = null; it.guest = null; it.guestUsed = false; it.compass = false; delete it.compassPrev;
+            it.created = due;
+          }
+          // the same stamp on every device, so a real change made elsewhere always wins over a comeback
+          it.updated_at = Math.max(it.updated_at || 0, due + 1);
+          snap[it.id] = sigOf(it);
+          pushIds.add(it.id); savePushIds();
+          changed = true;
+        }
+      }
+      if (!it.deleted && !it.vault && !it.repeat && !it.priority && !it.guest && !it.compass && (now - it.created) >= EXPIRE_DAYS * DAY) {
         it.vault = true;   // faded thoughts rest in the vault — a quiet list, not a delete
         changed = true;
       }
     }
     const before = items.length;
-    items = items.filter(it => !(it.deleted && (now - (it.updated_at || it.created)) > 60 * DAY));
+    items = items.filter(it => !(it.deleted && !it.repeat && (now - (it.updated_at || it.created)) > 60 * DAY));
     if (items.length !== before) changed = true;
     if (changed) save();
     return changed;
@@ -1035,7 +1079,7 @@
   const alive = () => items.filter(it => !it.deleted && !it.vault);
   const vaulted = () => items.filter(it => !it.deleted && it.vault);
   const isGuest = it => !it.deleted && !it.vault && !!it.guest && (Date.now() - it.guest) < GUEST_MS;
-  const expired = it => !it.priority && !isGuest(it) && !it.compass && age(it) >= EXPIRE_DAYS * DAY;
+  const expired = it => !it.repeat && !it.priority &&!isGuest(it) && !it.compass && age(it) >= EXPIRE_DAYS * DAY;
   const compasses = () => items.filter(i => !i.deleted && !i.vault && i.compass);
   const marks = () => items.filter(it => !it.deleted && !it.vault && it.priority).length;
   const guests = () => items.filter(isGuest);
@@ -1044,7 +1088,7 @@
 
   // full strength until day 20, then a visible fade-out ticking down to day 30
   function fadeOpacity(it) {
-    if (it.priority || it.compass) return 1;
+    if (it.priority || it.compass || it.repeat) return 1;
     const d = age(it) / DAY;
     if (d < FADE_START_DAYS) return 1;
     const t = (d - FADE_START_DAYS) / (EXPIRE_DAYS - FADE_START_DAYS);
@@ -1054,6 +1098,7 @@
     const d = Math.floor(age(it) / DAY);
     const left = EXPIRE_DAYS - d;
     if (it.compass) return 'compass';
+    if (it.repeat) return '🔁 ' + repeatLabel(it.repeat);
     if (it.priority) return d === 0 ? 'today' : `${d} d ago`;
     // unprioritized thoughts always count DOWN, so the number never jumps
     // (age 19 d one day, 'expires in 10 d' the next confused Pat)
@@ -1580,6 +1625,31 @@
       $('modal').hidden = true;
       save(); rerender();
     });
+    // opts.repeatFor: Off · Daily · one weekday; a tap sets it and closes the dialog
+    const mr = $('modalRepeat');
+    mr.hidden = !opts.repeatFor;
+    mr.innerHTML = '';
+    if (opts.repeatFor) {
+      const it = opts.repeatFor;
+      const lab = document.createElement('span'); lab.className = 'rl'; lab.textContent = '🔁 Repeat';
+      mr.appendChild(lab);
+      const choices = [[null, 'Off'], ['d', 'Daily']].concat([1, 2, 3, 4, 5, 6, 0].map(k => ['w' + k, WEEKDAYS[k]]));
+      for (const [r, name] of choices) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cchip rchip' + ((it.repeat || null) === r ? ' on' : '');
+        b.textContent = name;
+        b.dataset.repeat = r || '';
+        b.addEventListener('click', e => {
+          e.preventDefault(); e.stopPropagation();
+          setRepeat(it, r);
+          $('modal').hidden = true;
+          save(); rerender();
+          flash(r ? 'Repeats ' + repeatLabel(r) + '. It comes back into the archive.' : 'Repeat off.');
+        });
+        mr.appendChild(b);
+      }
+    }
     const alts = opts.alts || (opts.alt ? [opts.alt] : []);
     [alt, $('modalAlt2')].forEach((btn, i) => {
       const a = alts[i];
@@ -1713,6 +1783,7 @@
             priority: it.priority === 'dark' || it.priority === 'light' ? it.priority : null,
             guest: +it.guest || null, guestUsed: !!it.guestUsed, compass: !!it.compass,
             deleted: !!it.deleted, vault: !!it.vault,
+            repeat: /^(d|w[0-6])$/.test(it.repeat || '') ? it.repeat : undefined, cycle: +it.cycle || undefined,
             why: typeof it.why === 'string' ? it.why : undefined });
           n++;
         }
@@ -1794,7 +1865,7 @@
       it.why ? `Your why: "${it.why}"` : '',
       '✏️ Edit',
       () => openEdit(it),
-      { alts, catsFor: it });
+      { alts, catsFor: it, repeatFor: it.compass ? null : it });
   }
   // drop a dragged card onto a category — dragging is deliberate, so no why-dialogs here,
   // only hard limits speak up
@@ -2149,7 +2220,9 @@
     vault: !!it.vault,
     cat: it.cat || null,
     circle_id: isShared(catOf(it)) ? catOf(it).circle.id : null,
-    author: it.author || null
+    author: it.author || null,
+    recur: it.repeat || null,
+    recur_cycle: it.cycle || null
   });
   const fromRow = r => ({
     id: r.id,
@@ -2165,7 +2238,9 @@
     deleted: !!r.deleted,
     vault: !!r.vault,
     cat: catForCircle(r.circle_id) ? catForCircle(r.circle_id).id : (r.cat || null),
-    author: r.author || undefined
+    author: r.author || undefined,
+    repeat: r.recur || undefined,
+    cycle: r.recur_cycle ? +r.recur_cycle : undefined
   });
 
   // columns the server table does not have yet (vault since v34, cat since v45): sync everything else
@@ -2278,7 +2353,8 @@
       const m = mergeRows(rows);
       let maxSeen = Math.max(last, m.maxSeen), changedLocal = m.changed;
       // push everything that changed locally since the last sync
-      let dirty = items.filter(i => (i.updated_at || 0) > last).map(toRow);
+      const pushing = [...pushIds];
+      let dirty = items.filter(i => (i.updated_at || 0) > last || pushIds.has(i.id)).map(toRow);
       dirty = stripLacking(dirty);
       if (dirty.length) {
         const push = rows => fetch(`${SYNC.url}/rest/v1/thoughts?on_conflict=user_id%2Cid`, {
@@ -2287,17 +2363,18 @@
           body: JSON.stringify(rows)
         });
         let r2 = await push(dirty);
-        if (!r2.ok) {
+        // schema behind (columns missing)? drop them one by one and keep syncing everything else
+        for (let tries = 0; !r2.ok && tries < 6; tries++) {
           const err = await r2.text();
-          // schema behind (a column missing)? drop it and keep syncing everything else
-          const missing = ['vault', 'cat', 'circle_id', 'author'].find(k => !schemaLacks.has(k) && new RegExp("'" + k + "'|\\b" + k + "\\b column|column \"?" + k).test(err));
-          if (missing) {
-            schemaLacks.add(missing);
-            dirty = stripLacking(dirty);
-            r2 = await push(dirty);
-          }
-          if (!r2.ok) { setSyncState('error'); return; }
+          const missing = ['vault', 'cat', 'circle_id', 'author', 'recur', 'recur_cycle'].find(k => !schemaLacks.has(k) && new RegExp("'" + k + "'|\\b" + k + "\\b column|column \"?" + k + "\\b").test(err));
+          if (!missing) break;
+          schemaLacks.add(missing);
+          dirty = stripLacking(dirty);
+          r2 = await push(dirty);
         }
+        if (!r2.ok) { setSyncState('error'); return; }
+        for (const id of pushing) pushIds.delete(id);
+        savePushIds();
         for (const d of dirty) maxSeen = Math.max(maxSeen, d.updated_at);
       }
       localStorage.setItem(lsKey, maxSeen + '');
