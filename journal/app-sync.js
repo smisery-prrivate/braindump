@@ -153,7 +153,7 @@ function wantTranscribe(e) {
     return;
   }
   e.tx = true;
-  for (const g of e.segs) if (g.st === 'off' || g.st === 'fail' || g.st === 'busy') { g.st = 'todo'; txFail.delete(g.id); }
+  for (const g of e.segs) if (g.st === 'off' || g.st === 'fail' || g.st === 'busy' || g.st === 'empty') { g.st = 'todo'; txFail.delete(g.id); }
   persist(e); renderAll(); scheduleTranscribe(0);
 }
 function retranscribe(e) {
@@ -195,7 +195,11 @@ async function transcribeNow() {
         if (blob.size > MAX_SEG) throw new Error('this part is too large');
         const k = e.segs.indexOf(g), prev = k > 0 ? (e.segs[k - 1].text || '').trim().slice(-200) : '';
         const out = await transcribeRequest(blob, g, prev, e.lang || settings.lang);
-        if (!e.deleted && g.st === 'busy') { g.text = out.text; if (out.language) g.lang = out.language; g.st = 'done'; g.merged = false; mergeSeg(e, g); txFail.delete(g.id); }
+        if (!e.deleted && g.st === 'busy') {
+          g.text = out.text; if (out.language) g.lang = out.language; g.merged = false; txFail.delete(g.id);
+          if (out.text) { g.st = 'done'; delete g.err; mergeSeg(e, g); }
+          else { g.st = 'empty'; g.err = 'no words heard' + (out.secs ? ' in ' + out.secs + ' s' : '') + (out.raw ? '; Whisper gave only “' + out.raw + '”' : ''); }      // the recording is kept; the text can be tried again
+        }
       } catch (err) {
         if (g.st === 'busy') {
           if (txCtl.signal.aborted) g.st = 'todo';

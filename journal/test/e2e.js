@@ -330,12 +330,14 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
       if (!String(url).includes('whisper-worker')) return new Real(url, opts);
       const w = { onmessage: null, onerror: null, dead: false, terminate() { w.dead = true; }, postMessage(m) {
         const say = (d, ms) => setTimeout(() => { if (!w.dead && w.onmessage) w.onmessage({ data: d }); }, ms || 0);
-        if (m.type === 'load') { say({ type: 'ready', model: m.model }, 50); return; }
+        const net = !localStorage.getItem('fake.cached');                       // like the real worker: "download" only until the files sit in the cache
+        if (m.type === 'load') { say({ type: 'loading', model: m.model, net }); say({ type: 'ready', model: m.model }, 50); localStorage.setItem('fake.cached', '1'); return; }
         if (m.type !== 'run') return;
         window.__wruns.push({ len: m.audio.length, lang: m.language, model: m.model, ctor: m.audio.constructor.name, rec: !!journalDebug.recording });
         const k = window.__wruns.length;
-        say({ type: 'progress', loaded: 40, total: 80 }); say({ type: 'ready', model: m.model }, 300); say({ type: 'working', id: m.id, language: 'de' }, 320);
-        say({ type: 'result', id: m.id, text: 'Aufnahme Nummer ' + k + ' von Whisper', language: 'de' }, 900);
+        if (!w.loaded) { say({ type: 'loading', model: m.model, net }); say({ type: 'progress', loaded: 40e6, total: 80e6, net }); say({ type: 'ready', model: m.model }, 1200); setTimeout(() => localStorage.setItem('fake.cached', '1'), 1200); w.loaded = true; }
+        say({ type: 'working', id: m.id, language: 'de' }, w.loaded ? 1250 : 50);
+        say({ type: 'result', id: m.id, text: window.__empty ? '' : 'Aufnahme Nummer ' + k + ' von Whisper', language: 'de', raw: window.__empty ? 'Vielen Dank.' : '', secs: 3 }, 1800);
       } };
       return w;
     };
@@ -349,6 +351,9 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p5.click('#recBtn'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(3000);
   check((await p5.textContent('#recLive')).includes('written on this phone') && await p5.evaluate(() => window.__wruns.length === 0), 'while recording: the bar says the text follows, Whisper waits');
   await p5.click('#recStop');
+  await p5.waitForFunction(() => /Downloading the speech model/.test((document.querySelector('#takes .st') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+  const dlMsg = await p5.evaluate(() => (document.querySelector('#takes .st') || {}).textContent || '');
+  check(/Downloading the speech model, once: 38\.1 MB of about 81\.1 MB \(47 %\)/.test(dlMsg) && /Keep the app open/.test(dlMsg), 'first time: the recording shows the download in MB and percent (' + dlMsg + ')');
   await p5.waitForFunction(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.segs.length && e.segs.every(g => g.st === 'done'); }, null, { timeout: 15000 }).catch(() => {});
   await sleep(300);
   const w1 = await p5.evaluate(() => ({ runs: window.__wruns, text: document.getElementById('noteText').value, blocks: document.querySelectorAll('#takes .player').length, st: (document.querySelector('#takes .st') || {}).textContent, entryText: journalDebug.entries.find(x => !x.deleted).text }));
@@ -382,10 +387,31 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await p5.click('#recHere'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
   await p5.click('#recDiscard'); await p5.waitForSelector('#popup.open'); await p5.click('#popupBox button.danger'); await sleep(1500);
   check(await p5.evaluate(() => { const live = journalDebug.entries.filter(x => !x.deleted); return live.length === 1 && takesOf(live[0]).length === 2 && document.querySelectorAll('#takes .player').length === 2 && !journalDebug.recording; }), 'discarding a third recording keeps the entry and its first two');
+  // Whisper hears nothing: the recording says so, with what Whisper gave, and Try again gets the text
+  await p5.evaluate(() => { window.__empty = true; });
+  await p5.click('#recHere'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(1500); await p5.click('#recHere');
+  await p5.waitForFunction(() => /No text/.test([...document.querySelectorAll('#takes .st')].map(s => s.textContent).join()), null, { timeout: 15000 }).catch(() => {});
+  const em = await p5.evaluate(() => { const b = [...document.querySelectorAll('#takes .player')].pop(); return { st: b.querySelector('.st').textContent, btn: (b.querySelector('.tbtn button') || {}).textContent, segs: journalDebug.entries.find(x => !x.deleted).segs.map(g => g.st).join(), text: journalDebug.entries.find(x => !x.deleted).text }; });
+  console.log('empty', JSON.stringify(em));
+  check(/No text: no words heard in 3 s; Whisper gave only “Vielen Dank\.”/.test(em.st) && em.btn === 'Try again' && /empty$/.test(em.segs) && !em.text.includes('Vielen Dank'), 'a recording with no words says so, offers Try again, adds nothing to the text');
+  await p5.evaluate(() => { window.__empty = false; });
+  await p5.click('#takes .player:last-child .tbtn button');
+  await p5.waitForFunction(() => journalDebug.entries.find(x => !x.deleted).segs.every(g => g.st === 'done'), null, { timeout: 15000 }).catch(() => {});
+  check(await p5.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); return e.segs.every(g => g.st === 'done') && e.text.includes('Nummer 4'); }), 'Try again transcribes that recording anew and appends its text');
+  // after a restart the model starts from the cache: no "Downloading"
+  const p5b = await ctx5.newPage(); p5b.on('pageerror', e => errors.push('p5b pageerror: ' + e.message));
+  await p5.close(); await p5b.goto(BASE); await p5b.waitForFunction(() => window.journalDebug && journalDebug.entries && !journalDebug.locked);
+  await p5b.click('#recBtn'); await p5b.waitForSelector('#recBar:not([hidden])'); await sleep(1500); await p5b.click('#recStop');
+  await p5b.waitForFunction(() => /speech model/.test((document.querySelector('#takes .st') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+  const startMsg = await p5b.evaluate(() => (document.querySelector('#takes .st') || {}).textContent || '');
+  check(/Starting the speech model on this phone \(it is downloaded already\)/.test(startMsg) && !/Downloading/.test(startMsg), 'after a restart the model starts from the cache, not "Downloading" (' + startMsg + ')');
+  await p5b.waitForFunction(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.segs.length && e.segs.every(g => g.st === 'done'); }, null, { timeout: 15000 }).catch(() => {});
+  await p5b.click('#entryBack'); await p5b.waitForSelector('#home:not([hidden])');
+  const p5c = p5b;
   // the menu: Whisper chosen, the model on this phone
-  await p5.evaluate(() => back()); await p5.waitForSelector('#home:not([hidden])'); await p5.click('#menuBtn'); await p5.waitForSelector('#setWModel');
-  check(await p5.evaluate(() => document.getElementById('setEngine').value === 'whisper' && document.getElementById('wState').textContent.includes('on this phone') && document.getElementById('wFetch').hidden), 'menu: Whisper chosen, the speech model is on this phone');
-  await p5.evaluate(() => back());
+  await p5c.click('#menuBtn'); await p5c.waitForSelector('#setWModel');
+  check(await p5c.evaluate(() => document.getElementById('setEngine').value === 'whisper' && document.getElementById('wState').textContent.includes('on this phone') && document.getElementById('wFetch').hidden), 'menu: Whisper chosen, the speech model is on this phone');
+  await p5c.evaluate(() => back());
 
   // 11. the real library and runtime against a stand-in for Hugging Face: the right model files are
   // asked for, the runtime (WebAssembly) loads from the app's own folder and the page's rules allow it

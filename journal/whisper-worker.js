@@ -13,11 +13,21 @@ env.backends.onnx.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, Math.
 let asr = null, asrModel = '', loading = null;
 const say = m => self.postMessage(m);
 
+// are the model's big files in the browser's cache already? (the library says "download" either way)
+async function cached(model) {
+  try {
+    const c = await caches.open('transformers-cache'), keys = await c.keys();
+    const has = name => keys.some(r => r.url.includes('/' + model + '/') && r.url.endsWith(name));
+    return has('encoder_model_quantized.onnx') && has('decoder_model_merged_quantized.onnx');
+  } catch (e) { return false; }
+}
 async function load(model) {
   if (asr && asrModel === model) return asr;
   if (loading && loading.model === model) return loading.p;
   const p = (async () => {
     if (asr) { try { await asr.dispose(); } catch (e) {} asr = null; asrModel = ''; }
+    const net = !(await cached(model));
+    say({ type: 'loading', model, net });
     const files = new Map();                                  // file -> [loaded, total], for one progress figure
     const a = await pipeline('automatic-speech-recognition', model, {
       device: 'wasm',
@@ -29,7 +39,7 @@ async function load(model) {
           files.set(ev.file, [ev.loaded != null ? ev.loaded : prev[0], ev.total != null ? ev.total : prev[1]]);
         } else if (ev.status === 'done') { const prev = files.get(ev.file); if (prev) files.set(ev.file, [prev[1] || prev[0], prev[1] || prev[0]]); }
         let got = 0, all = 0; for (const [l, t] of files.values()) { got += l || 0; all += t || 0; }
-        say({ type: 'progress', loaded: got, total: all });
+        say({ type: 'progress', loaded: got, total: all, net });
       },
     });
     asr = a; asrModel = model; say({ type: 'ready', model });
@@ -64,18 +74,22 @@ function clean(t) {
   return ONLY_JUNK.test(s) ? '' : s;
 }
 
+const cancelled = new Set();
 self.onmessage = async ({ data: m }) => {
+  if (m && m.type === 'cancel') { cancelled.add(m.id); return; }
   if (m && m.type === 'load') { try { await load(m.model); } catch (e) { say({ type: 'loaderror', message: why(e) }); } return; }
   if (!m || m.type !== 'run') return;
   try {
     const a = await load(m.model);
+    if (cancelled.has(m.id)) { cancelled.delete(m.id); return; }      // stopped while the model loaded: the model stays, the work is dropped
     const audio = m.audio;
-    if (!audio || audio.length < 16000 * 0.3) { say({ type: 'result', id: m.id, text: '', language: '' }); return; }
+    if (!audio || audio.length < 16000 * 0.3) { say({ type: 'result', id: m.id, text: '', language: '', raw: '', secs: 0 }); return; }
     const language = m.language === 'de' || m.language === 'en' ? m.language : await detect(a, audio);
+    if (cancelled.has(m.id)) { cancelled.delete(m.id); return; }
     say({ type: 'working', id: m.id, language });
     const out = await a(audio, { language, task: 'transcribe', chunk_length_s: 30, stride_length_s: 5, return_timestamps: false });
     const text = Array.isArray(out) ? out.map(o => o.text).join(' ') : out && out.text;
-    say({ type: 'result', id: m.id, text: clean(text), language });
+    say({ type: 'result', id: m.id, text: clean(text), language, raw: String(text || '').trim().slice(0, 160), secs: Math.round(audio.length / 16000) });
   } catch (e) { say({ type: 'error', id: m.id, message: why(e) }); }
 };
 // a failed download says so in plain words; anything else as it came

@@ -6,7 +6,7 @@
 let locked = false, softLock = false, unlocking = false, hiddenAt = 0, pinStep = false, hideTimer = null, softTimer = null, storageAtRisk = false;
 const unlockWaiters = [];
 const COVERED = ['home', 'entry', 'sheet'];
-const workInFlight = () => recording || recFinishing || segWrites > 0 || persistQueued > 0 || txBusy || syncing || backupBusy;
+const workInFlight = () => recording || recFinishing || segWrites > 0 || persistQueued > 0 || txBusy || syncing || backupBusy || !!wDl;
 
 // ---------- lock screen ----------
 function showLock(soft) {

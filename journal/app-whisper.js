@@ -4,8 +4,8 @@
    downloaded once (Hugging Face) and kept in the browser's cache. The transcription queue in
    app-sync.js calls whisperTranscribe() like any other engine. */
 const WHISPER_MODELS = {
-  base: { id: 'Xenova/whisper-base', label: 'Fast (Whisper base, about 80 MB)' },
-  small: { id: 'Xenova/whisper-small', label: 'Better German (Whisper small, about 250 MB, slower)' },
+  base: { id: 'Xenova/whisper-base', label: 'Fast (Whisper base, about 80 MB)', bytes: 85e6 },
+  small: { id: 'Xenova/whisper-small', label: 'Better German (Whisper small, about 250 MB, slower)', bytes: 260e6 },
 };
 const whisperOk = () => typeof WebAssembly === 'object' && typeof Worker === 'function' && typeof (self.OfflineAudioContext || self.webkitOfflineAudioContext) === 'function';
 const whisperModel = () => WHISPER_MODELS[settings.whisperModel] || WHISPER_MODELS.base;
@@ -19,13 +19,14 @@ function whisperWorker() {
   const w = wWorker = new Worker('whisper-worker.js', { type: 'module' });
   w.onmessage = ({ data: m }) => {
     if (!m) return;
-    if (m.type === 'progress') { wDl = { loaded: m.loaded, total: m.total }; whisperStateChanged(); return; }
+    if (m.type === 'loading') { wDl = { loaded: 0, total: whisperModel().bytes, net: !!m.net }; whisperStateChanged(); return; }
+    if (m.type === 'progress') { wDl = { loaded: Math.max(m.loaded || 0, wDl ? wDl.loaded : 0), total: Math.max(m.total || 0, whisperModel().bytes), net: !!m.net }; whisperStateChanged(); return; }      // the files come one after the other: the figure only ever grows
     if (m.type === 'ready') { wDl = null; try { localStorage.setItem(WREADY_KEY + '|' + m.model, '1'); } catch (e) {} whisperStateChanged(); return; }
     if (m.type === 'loaderror') { wDl = null; toast('The speech model could not be downloaded: ' + m.message); whisperStateChanged(); return; }
     if (m.type === 'working') { wDl = null; wWorking = { id: m.id, at: Date.now() }; whisperStateChanged(); return; }
     const job = wJobs.get(m.id); if (!job) return;
     wJobs.delete(m.id); wWorking = null;
-    if (m.type === 'result') job.res({ text: (m.text || '').trim(), language: m.language || '' });
+    if (m.type === 'result') job.res({ text: (m.text || '').trim(), language: m.language || '', raw: m.raw || '', secs: m.secs || 0 });
     else job.rej(new Error(m.message || 'the speech model failed'));
     whisperStateChanged();
   };
@@ -43,7 +44,7 @@ function whisperStateChanged() {
   if (wWorking && !wTick) wTick = setInterval(() => { if (!wWorking) { clearInterval(wTick); wTick = null; return; } if (typeof curEntry !== 'undefined' && curEntry && typeof renderTxState === 'function') renderTxState(); }, 1000); if (typeof curEntry !== 'undefined' && curEntry && typeof renderTxState === 'function') renderTxState(); if ($('txBox') && typeof renderWhisperState === 'function') renderWhisperState(); }
 // what the phone is doing right now, in words, for the recording's status line
 function whisperStatus() {
-  if (wDl) return 'Downloading the speech model, once: ' + (wDl.total ? Math.round(100 * wDl.loaded / wDl.total) + ' %' : fmtSize(wDl.loaded || 0)) + '…';
+  if (wDl) return wDl.net ? 'Downloading the speech model, once: ' + fmtSize(wDl.loaded || 0) + ' of about ' + fmtSize(wDl.total) + ' (' + Math.min(99, Math.round(100 * (wDl.loaded || 0) / wDl.total)) + ' %). Keep the app open…' : 'Starting the speech model on this phone (it is downloaded already)…';
   if (wWorking) return 'Writing the text on this phone… ' + fmtDur(Date.now() - wWorking.at);
   return '';
 }
@@ -61,7 +62,7 @@ async function decode16k(blob) {
 }
 
 // download the model ahead (on wifi, say), without a recording
-function whisperPrefetch() { if (!whisperOk() || whisperReady()) return; wDl = { loaded: 0, total: 0 }; whisperWorker().postMessage({ type: 'load', model: whisperModel().id }); whisperStateChanged(); }
+function whisperPrefetch() { if (!whisperOk() || whisperReady() || wDl) return; wDl = { loaded: 0, total: whisperModel().bytes, net: true }; whisperWorker().postMessage({ type: 'load', model: whisperModel().id }); whisperStateChanged(); }
 async function whisperTranscribe(blob, lang, signal) {
   if (!whisperOk()) throw new Error('this browser cannot run the speech model');
   let audio;
@@ -69,7 +70,7 @@ async function whisperTranscribe(blob, lang, signal) {
   if (signal && signal.aborted) throw new Error('stopped');
   return new Promise((res, rej) => {
     const id = ++wSeq; wJobs.set(id, { res, rej });
-    if (signal) signal.addEventListener('abort', () => { if (wJobs.has(id)) whisperStop('stopped'); }, { once: true });
+    if (signal) signal.addEventListener('abort', () => { const job = wJobs.get(id); if (!job) return; wJobs.delete(id); job.rej(new Error('stopped')); if (wWorker) { try { wWorker.postMessage({ type: 'cancel', id }); } catch (e) {} } if (wWorking && wWorking.id === id) { wWorking = null; whisperStateChanged(); } }, { once: true });
     try { whisperWorker().postMessage({ type: 'run', id, model: whisperModel().id, language: lang === 'de' || lang === 'en' ? lang : 'auto', audio }, [audio.buffer]); }
     catch (e) { wJobs.delete(id); rej(e); }
   });

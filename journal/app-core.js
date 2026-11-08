@@ -4,7 +4,7 @@ if (self !== top) { try { document.documentElement.hidden = true; } catch (e) {}
    and the back button. The app is several plain script files that share one scope (no build
    step); index.html loads them in order. Built the Snapdoc way: nothing readable is ever written
    to the device, one window is active at a time, the lock restarts the page. */
-const VERSION = 'v26';
+const VERSION = 'v27';
 const $ = id => document.getElementById(id);
 const CFG = self.APP_CONFIG || {};
 const SYNC = CFG.supabaseUrl && CFG.supabaseKey ? { url: String(CFG.supabaseUrl).replace(/\/$/, ''), key: CFG.supabaseKey } : null;
@@ -183,10 +183,10 @@ const mediaOf = e => (e.segs || []).concat(e.pics || []);
 function mergeSeg(e, g) { if (!g.merged && g.text) { e.text = joinText(e.text, g.text); g.merged = true; } }
 const txState = e => {
   const segs = (e.segs || []); if (!segs.length) return '';
-  if (segs.every(g => g.st === 'done')) return 'done';
+  if (segs.every(g => g.st === 'done' || g.st === 'empty')) return 'done';
   if (segs.some(g => g.st === 'busy')) return 'busy';
   if (segs.some(g => g.st === 'fail')) return 'fail';
-  if (segs.every(g => g.st === 'off' || g.st === 'done')) return 'off';
+  if (segs.every(g => g.st === 'off' || g.st === 'done' || g.st === 'empty')) return 'off';
   return 'todo';
 };
 

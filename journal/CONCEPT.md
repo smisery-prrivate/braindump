@@ -227,6 +227,11 @@ See `README.md`.
 
 ## History
 
+- v27 (2026-11-08): "Downloading" was shown every time the model started, from the cache too
+  (the library says "download" either way): the cache is checked first and starting from it is
+  said so. A recording in which Whisper hears no words says so (with what Whisper gave) and offers
+  Try again, instead of "its text is in the entry below". The download survives a stop, the lock
+  screen waits for it, and its progress shows MB of about the model's size and only ever grows.
 - v26 (2026-11-08): search is always there and looks in every folder, in title, text, folder
   name and date, accents ignored, hits marked; everything (or the search hits) exports as one
   plain text file, oldest first.

@@ -261,7 +261,7 @@ function renderTakes() {
     const b = ev.target.closest('button'), blk = ev.target.closest('.player'); if (!b || !blk) return;
     const id = blk.dataset.take, act = b.dataset.act;
     if (act === 'play') togglePlay(id); else if (act === 'back') skipBy(id, -10000); else if (act === 'fwd') skipBy(id, 10000);
-    else if (act === 'tx') wantTranscribe(e); else if (b.dataset.rate) setRate(+b.dataset.rate);
+    else if (act === 'tx') { for (const g of e.segs) if (g.st === 'empty') g.st = 'todo'; wantTranscribe(e); } else if (b.dataset.rate) setRate(+b.dataset.rate);
   };
   box.oninput = ev => { if (!ev.target.classList.contains('pseek')) return; player.seeking = true; ev.target.closest('.player').querySelector('.pcur').textContent = fmtDur(+ev.target.value); };
   box.onchange = ev => { if (!ev.target.classList.contains('pseek')) return; player.seeking = false; seekTo(ev.target.closest('.player').dataset.take, +ev.target.value); };
@@ -318,6 +318,7 @@ function renderPics() {
 }
 // the state of each recording's text, in its block
 function takeTxState(segs) {
+  if (segs.some(g => g.st === 'empty') && segs.every(g => g.st === 'done' || g.st === 'empty')) return 'empty';
   if (segs.every(g => g.st === 'done')) return 'done';
   if (segs.some(g => g.st === 'busy')) return 'busy';
   if (segs.some(g => g.st === 'fail')) return 'fail';
@@ -336,6 +337,7 @@ function renderTxState() {
     else if (s === 'todo') { if (txAvailable()) { msg = e.tx ? 'Its text follows…' : 'Its text is not written yet.'; if (!e.tx) btn = 'Write its text'; } else { msg = 'Your voice, stored encrypted.'; btn = 'Get its text'; } }
     else if (s === 'off') { msg = 'Audio only.'; btn = 'Write its text'; }
     else if (s === 'done') msg = '✓ Its text is in the entry below.';
+    else if (s === 'empty') { const f = t.segs.find(g => g.st === 'empty'); msg = 'No text: ' + (f && f.err || 'no words heard') + '. Was it quiet, or very short? The recording is kept.'; cls = 'fail'; btn = 'Try again'; }
     el.textContent = msg; el.className = 'st ' + cls;
     bt.innerHTML = btn ? '<button data-act="tx">' + esc(btn) + '</button>' : '';
   }
