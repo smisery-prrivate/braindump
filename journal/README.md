@@ -5,14 +5,13 @@ optional encrypted cloud copy. A web app without build step, like Snapdoc and Br
 Concept and security model: [CONCEPT.md](CONCEPT.md).
 
 Without any set-up the app runs fully on the device. Microphone: records your voice, for as
-long as you like; it stays encrypted and playable in the entry (play, 10 s back and on, 0.5 to 2
-times speed, save or share the file). Its text comes online once a transcription key is set
-(below, two minutes), for every recording made before as well. Pen: write. Inside an entry,
-Dictate writes with the phone's own speech recognition (free, no recording; on Android it stops
-at pauses). Where a phone has shown it can listen while it records, the recording writes live
-too; the voice always comes first. Folders sort entries; photos (camera or gallery, shrunk on
-the phone, location data dropped) sit in every entry, encrypted like everything else. "Select"
-in the header picks several entries to delete or move at once.
+long as you like. When you stop, Whisper writes its text on the phone itself (nothing leaves the
+phone; the speech model, about 80 MB, is downloaded once). Each recording sits above the text with
+its own player (10 s back and on, 0.5 to 2 times speed, save or share the file); Record inside an
+entry adds the next one below. Pen: write. Online transcription with a key (below) is the
+alternative. Folders sort entries; photos (camera or gallery, shrunk on the phone, location data
+dropped) sit in every entry, encrypted like everything else. "Select" in the header picks several
+entries to delete or move at once.
 
 ## Transcription with a key (2 minutes)
 

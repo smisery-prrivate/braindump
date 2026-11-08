@@ -63,11 +63,32 @@ async function readBackup(file, password, progress) {
   }
   return { added, updated, audio };
 }
-function markdownOfAll() {
-  const out = ['# Journal export', 'Exported ' + new Date().toLocaleString() + ' · ' + live().length + ' entries · plain text, not encrypted', ''];
-  for (const e of live().slice().sort((a, b) => a.created - b.created)) out.push(entryAsText(e).replace(/^# /, '## '), '');
+// Everything as one plain text file, oldest first: date, folder, title, text, one after the other.
+const RULE = '='.repeat(60);
+function textOfEntries(list) {
+  const items = list.filter(e => !e.deleted).slice().sort((a, b) => a.created - b.created);
+  const out = ['JOURNAL', 'Exported ' + fmtDay(Date.now()) + ', ' + fmtTime(Date.now()) + ' · ' + items.length + ' entr' + (items.length === 1 ? 'y' : 'ies') + ' · plain text, NOT encrypted', RULE, ''];
+  for (const e of items) {
+    out.push(fmtDay(e.created) + ', ' + fmtTime(e.created) + (e.folder ? ' · ' + e.folder : '') + (e.segs && e.segs.length ? ' · recording ' + fmtDur(entryDur(e)) : '') + (e.pics && e.pics.length ? ' · ' + e.pics.length + ' photo' + (e.pics.length > 1 ? 's' : '') : ''));
+    if ((e.title || '').trim()) out.push(e.title.trim(), '-'.repeat(Math.min(60, e.title.trim().length)));
+    out.push('', (entryText(e) || '').trim() || '(no text)', '', RULE, '');
+  }
   return out.join('\n');
 }
+function exportTextAsk(list, base) {
+  const n = list.filter(e => !e.deleted).length;
+  popup('Export ' + n + ' entr' + (n === 1 ? 'y' : 'ies') + ' as text?', 'One plain text file, oldest entry first. It is NOT encrypted: anyone who gets the file can read it. Keep it only in a place you trust.', [
+    { label: 'Text file (.txt)', cls: 'primary', fn: () => deliverFile(new Blob([textOfEntries(list)], { type: 'text/plain;charset=utf-8' }), (base || 'journal') + '-' + dayKey(Date.now()) + '.txt').then(r => { if (r !== 'cancelled') toast('Exported'); }) },
+    { label: 'Markdown (.md)', fn: () => deliverFile(new Blob([markdownOf(list)], { type: 'text/markdown' }), (base || 'journal') + '-' + dayKey(Date.now()) + '.md').then(r => { if (r !== 'cancelled') toast('Exported'); }) },
+    { label: 'Cancel', cls: 'quiet' }]);
+}
+function markdownOf(list) {
+  const items = list.filter(e => !e.deleted).slice().sort((a, b) => a.created - b.created);
+  const out = ['# Journal export', 'Exported ' + new Date().toLocaleString() + ' · ' + items.length + ' entries · plain text, not encrypted', ''];
+  for (const e of items) out.push(entryAsText(e).replace(/^# /, '## '), '');
+  return out.join('\n');
+}
+const markdownOfAll = () => markdownOf(live());
 async function deliverFile(blob, name) {
   const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
   if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: name }); return 'shared'; } catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; } }
@@ -83,7 +104,7 @@ function renderBackupBox() {
   box.innerHTML = '<p>An encrypted file with every entry and every recording (' + n + ' entries, about ' + fmtSize(size) + '). It opens in Journal on any device with the backup password. ' + (last ? 'Last backup ' + fmtDate(last) + '.' : 'No backup yet.') + '</p>' +
     '<form id="bkForm" class="pwform">' + pmUser('Journal backup') + '<input id="bkPw" name="password" type="password" autocomplete="new-password" placeholder="Backup password (10+ characters)"><input id="bkPw2" type="password" autocomplete="new-password" placeholder="Repeat the backup password"><button id="bkMake" type="submit" class="btn primary">Save encrypted backup</button></form>' +
     '<button id="bkLoad" class="btn">Load a backup file</button><div class="hint" id="bkHint"></div>' +
-    '<button id="bkMd" class="btn quiet">Export all texts as Markdown (not encrypted)</button>';
+    '<button id="bkMd" class="btn">Export everything as text (not encrypted)</button>';
   $('bkForm').addEventListener('submit', async ev => {
     ev.preventDefault();
     const pw = $('bkPw').value, hint = $('bkHint');
@@ -104,9 +125,7 @@ function renderBackupBox() {
     if (!pw) { hint.textContent = 'Enter the backup password of the file in the first field, then choose the file.'; return; }
     $('importInput').value = ''; $('importInput').click();
   });
-  $('bkMd').addEventListener('click', () => popup('Export as plain text?', 'The Markdown file is NOT encrypted. Anyone who gets the file can read your journal. Keep it only in a place you trust.', [
-    { label: 'Export', cls: 'primary', fn: () => deliverFile(new Blob([markdownOfAll()], { type: 'text/markdown' }), 'journal-' + dayKey(Date.now()) + '.md').then(r => { if (r !== 'cancelled') toast('Exported'); }) },
-    { label: 'Cancel', cls: 'quiet' }]));
+  $('bkMd').addEventListener('click', () => exportTextAsk(live(), 'journal'));
 }
 $('importInput').addEventListener('change', async ev => {
   const f = ev.target.files && ev.target.files[0]; if (!f || backupBusy) return;

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#5b4b8a">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.mistral.ai https://api.elevenlabs.io https://api.deepgram.com https://api.openai.com https://YOUR-PROJECT.supabase.co; img-src 'self' data: blob:; media-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://api.mistral.ai https://api.elevenlabs.io https://api.deepgram.com https://api.openai.com https://YOUR-PROJECT.supabase.co; img-src 'self' data: blob:; media-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -72,6 +72,7 @@
   .card .when { flex: none; width: 46px; font-size: 13px; color: var(--muted); padding-top: 2px; }
   .card .body { flex: 1; min-width: 0; }
   .card .name { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card mark { background: #fde68a; color: inherit; border-radius: 3px; padding: 0 1px; }
   .card .snip { font-size: 14px; color: var(--muted); margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; }
   .card .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .card .meta .st { font-weight: 600; }
@@ -138,15 +139,18 @@
   .player .speed button { height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font-size: 13px; font-weight: 600; color: var(--muted); }
   .player .speed button.on { background: var(--accent-bg); color: var(--accent); border-color: transparent; }
   .player .pstate { font-size: 13px; color: var(--muted); margin-top: 6px; min-height: 16px; }
+  #takes .player { margin-bottom: 12px; }
+  .player .phead { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .player .pstate:empty { display: none; }
+  .player .tstate { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+  .player .tstate .tbtn button { height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .txcard .t button.rec { background: var(--rec); color: #fff; border-color: transparent; }
+  .txcard .t button:disabled { opacity: .45; }
   .txcard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
   .txcard .t { font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
   .txcard .t button { height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 15px; background: transparent; font-size: 13px; font-weight: 600; color: var(--accent); text-transform: none; letter-spacing: 0; }
   .txcard .tbtns { display: flex; gap: 6px; }
   .txcard textarea { width: 100%; min-height: 160px; border: 1px solid transparent; border-radius: 10px; background: transparent; padding: 6px 8px; font-size: 16px; line-height: 1.5; resize: vertical; }
-  .txcard.listening { border-color: var(--rec); box-shadow: 0 0 0 1px var(--rec); }
-  .txcard.listening .tlabel { color: var(--rec); display: inline-flex; align-items: center; gap: 6px; }
-  .ldot { width: 9px; height: 9px; border-radius: 5px; background: var(--rec); display: inline-block; animation: lpulse 1.2s ease-in-out infinite; }
-  @keyframes lpulse { 50% { opacity: .25; } }
   .txcard textarea:focus { outline: none; border-color: var(--accent); background: #fcfbfe; }
   .txcard .st { font-size: 13px; color: var(--muted); line-height: 1.45; }
   .txcard .st.fail { color: var(--danger); }
@@ -229,8 +233,10 @@
     <button id="lockNudge" class="locknudge" hidden><b>🔓 Not locked yet</b><span>Tap to lock with fingerprint, pattern or PIN</span></button>
     <div class="chips" id="folderRow"></div>
     <div class="searchrow" id="searchRow" hidden>
-      <input id="searchBox" type="search" autocomplete="off" placeholder="Search your journal" aria-label="Search entries">
+      <input id="searchBox" type="search" autocomplete="off" enterkeyhint="search" placeholder="🔍 Search all entries" aria-label="Search all entries">
+      <button id="searchExport" class="pill" hidden>Export</button>
     </div>
+    <div class="subline" id="searchInfo" hidden></div>
     <div id="list" class="scroll"></div>
   </div>
   <div class="dock" id="selDock" hidden>
@@ -301,6 +307,7 @@
 <script src="app-core.js"></script>
 <script src="app-journal.js"></script>
 <script src="app-rec.js"></script>
+<script src="app-whisper.js"></script>
 <script src="app-lock.js"></script>
 <script src="app-sync.js"></script>
 <script src="app-backup.js"></script>

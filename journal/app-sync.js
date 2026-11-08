@@ -21,8 +21,8 @@ const STT = {
 };
 const sttUrl = p => (CFG.sttEndpoints && CFG.sttEndpoints[p]) || STT[p].url;      // sttEndpoints: only for the test mock
 // can stored audio be transcribed right now? (the phone's recognition only listens live)
-const txAvailable = () => settings.engine === 'key' ? !!stt : settings.engine === 'cloud' ? !!(SYNC && session) : false;
-const txEngineLabel = () => settings.engine === 'key' ? (stt ? STT[stt.provider].name.split(' (')[0] : 'your own key (not set yet)') : settings.engine === 'cloud' ? 'your cloud function' : settings.engine === 'claude' ? 'the Claude app' : settings.engine === 'keyboard' ? 'the keyboard\'s microphone' : 'the phone\'s speech recognition';
+const txAvailable = () => settings.engine === 'whisper' ? whisperOk() : settings.engine === 'key' ? !!stt : settings.engine === 'cloud' ? !!(SYNC && session) : false;
+const txEngineLabel = () => settings.engine === 'whisper' ? 'Whisper on this phone' : settings.engine === 'key' ? (stt ? STT[stt.provider].name.split(' (')[0] : 'your own key (not set yet)') : settings.engine === 'cloud' ? 'your cloud function' : settings.engine === 'claude' ? 'the Claude app' : 'the keyboard\'s microphone';
 async function loadStt() { stt = null; try { const r = await idb.get('meta', 'stt'); if (r) stt = await Vault.openJson(r.data, 'jn|stt'); } catch (e) { stt = null; } if (stt && !STT[stt.provider]) stt = null; }
 async function saveStt(cfg) { stt = cfg; if (cfg) await idb.put('meta', { id: 'stt', data: await Vault.sealJson(cfg, 'jn|stt') }); else await idb.del('meta', 'stt'); }
 const jwtPayload = t => JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
@@ -146,7 +146,9 @@ function askTranscribe(e) {
 }
 function wantTranscribe(e) {
   if (!txAvailable()) {
-    if (settings.engine !== 'cloud') popup('Text online for your recordings', 'Online transcription, like in the Claude app, needs a key from a transcription service. Mistral (Paris) understands German and English and costs a few cents per hour of audio: console.mistral.ai, sign up, choose pay-as-you-go (not the free Experiment plan, which trains on your audio), API Keys, Create API Key. Paste it here under Menu, Transcription. Then every recording gets its text, this one too. Never paste the key into a chat.', [{ label: 'Enter a key', cls: 'primary', fn: () => { settings.engine = 'key'; saveSettings(); openSheet(); } }, { label: 'Later', cls: 'quiet' }]);
+    if (settings.engine === 'whisper') popup('Text on this phone is not possible here', 'This browser cannot run the speech model (it needs WebAssembly and workers; recent Chrome has both). Online transcription with a key works instead: Menu, Transcription, "Own key".', [{ label: 'Open the menu', cls: 'primary', fn: openSheet }, { label: 'OK', cls: 'quiet' }]);
+    else if (settings.engine === 'claude' || settings.engine === 'keyboard') popup('Text for your recordings', 'Your recordings get their text on this phone with Whisper (free, nothing leaves the phone). Switch to it?', [{ label: 'Use Whisper', cls: 'primary', fn: () => { settings.engine = 'whisper'; saveSettings(); wantTranscribe(e); } }, { label: 'Not now', cls: 'quiet' }]);
+    else if (settings.engine !== 'cloud') popup('Text online for your recordings', 'Online transcription, like in the Claude app, needs a key from a transcription service. Mistral (Paris) understands German and English and costs a few cents per hour of audio: console.mistral.ai, sign up, choose pay-as-you-go (not the free Experiment plan, which trains on your audio), API Keys, Create API Key. Paste it here under Menu, Transcription. Then every recording gets its text, this one too. Never paste the key into a chat.', [{ label: 'Enter a key', cls: 'primary', fn: () => { settings.engine = 'key'; saveSettings(); openSheet(); } }, { label: 'Later', cls: 'quiet' }]);
     else { toast(settings.engine === 'key' ? 'Enter your key under Menu, Transcription.' : 'Sign in under Menu, Cloud.'); openSheet(); }
     return;
   }
@@ -162,6 +164,7 @@ function scheduleTranscribe(ms) { if (!txAvailable() || passive) return; clearTi
 function abortTranscribe() { if (txCtl) txCtl.abort(); }
 function nextTxJob() {
   const now = Date.now();
+  if (settings.engine === 'whisper' && recording) return null;      // the phone writes after the recording, never while it records
   for (const e of live()) {
     if (!e.tx || e.broken) continue;
     for (const g of e.segs) {
@@ -209,6 +212,7 @@ async function transcribeNow() {
   } finally { txBusy = false; txCtl = null; setBusy(false); if (nextTxJob() && !locked && !passive) scheduleTranscribe(30000); }
 }
 async function transcribeRequest(blob, g, prompt, lang) {
+  if (settings.engine === 'whisper') return whisperTranscribe(blob, lang, txCtl ? txCtl.signal : undefined);
   if (settings.engine === 'key') { if (!stt) throw new Error('no key set'); return transcribeDirect(blob, g, prompt, lang); }
   if (!session) throw new Error('Not signed in.');
   const fd = new FormData();
@@ -312,7 +316,7 @@ function syncRetry() { upFail.clear(); if (syncState === 'error') setSyncState('
 const objName = (u, segId) => u + '/' + segId;
 const cloudFields = e => ({ id: e.id, created: e.created, updated_at: e.updated_at, title: e.title || '', text: e.text || '', transcript: e.transcript || '', tEdited: !!e.tEdited, lang: e.lang || 'auto', mime: e.mime || '', folder: e.folder || '',
   pics: (e.pics || []).map(p => ({ id: p.id, mime: p.mime, size: p.size, w: p.w, h: p.h, th: p.th, t: p.t })),
-  segs: (e.segs || []).map(g => ({ id: g.id, i: g.i, dur: g.dur, mime: g.mime, size: g.size, text: g.text || '', st: g.st === 'done' ? 'done' : 'todo', lang: g.lang || '', merged: !!g.merged, live: !!g.live })), state: 'done', dur: e.dur || 0, deleted: !!e.deleted, del_at: e.del_at || 0, tx: !!e.tx, merged: !!e.merged });
+  segs: (e.segs || []).map(g => ({ id: g.id, i: g.i, take: g.take || '', dur: g.dur, mime: g.mime, size: g.size, text: g.text || '', st: g.st === 'done' ? 'done' : 'todo', lang: g.lang || '', merged: !!g.merged, live: !!g.live })), state: 'done', dur: e.dur || 0, deleted: !!e.deleted, del_at: e.del_at || 0, tx: !!e.tx, merged: !!e.merged });
 const sealedMeta = e => Vault.csealJson(e.deleted ? { id: e.id, deleted: true, updated_at: e.updated_at, del_at: e.del_at || 0 } : cloudFields(e), 'jn|entry|' + e.id);
 async function applyRow(row) {
   let m; try { m = await Vault.copenJson(row.meta, 'jn|entry|' + row.id); } catch (e) { return 'unreadable'; }

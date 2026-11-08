@@ -3,13 +3,39 @@
    typed notes, search, delete with undo, sharing the text. */
 let curEntry = null, searchQ = '', pendingDel = new Set(), curFolder = '';      // curFolder: '' = all entries
 let selMode = false; const selIds = new Set();                                      // pick mode on the home list
-const player = { e: null, i: -1, urls: new Map(), audio: null, rate: 1, seeking: false, loading: false, want: false };
+const player = { e: null, take: null, i: -1, urls: new Map(), audio: null, rate: 1, seeking: false, loading: false, want: false };      // urls: segment id -> blob URL
+const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 // ---------- home ----------
-function matches(e, q) {
-  if (!q) return true;
-  const hay = ((e.title || '') + '\n' + entryText(e)).toLowerCase();
-  return q.split(/\s+/).filter(Boolean).every(w => hay.includes(w));
+// ---------- search: every folder, title, text, folder name and date; accents do not matter ----------
+const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ß/g, 'ss');
+const qWords = q => fold(q).split(/\s+/).filter(Boolean);
+function matches(e, words) {
+  if (!words.length) return true;
+  const hay = fold([e.title, entryText(e), e.folder, fmtDay(e.created), dayKey(e.created)].join('\n'));
+  return words.every(w => hay.includes(w));
+}
+// the text with every hit marked (escaped piece by piece)
+function marked(text, words) {
+  const f = fold(text);
+  if (!words.length || f.length !== text.length) return esc(text);
+  let out = '', i = 0;
+  while (i < text.length) {
+    let at = -1, len = 0;
+    for (const w of words) { const j = f.indexOf(w, i); if (j >= 0 && (at < 0 || j < at || (j === at && w.length > len))) { at = j; len = w.length; } }
+    if (at < 0) { out += esc(text.slice(i)); break; }
+    out += esc(text.slice(i, at)) + '<mark>' + esc(text.slice(at, at + len)) + '</mark>'; i = at + len;
+  }
+  return out;
+}
+// a piece of the text around the first hit
+function hitSnippet(e, words) {
+  const t = entryText(e).replace(/\s+/g, ' ').trim(); if (!t) return '';
+  const f = fold(t); let at = -1;
+  if (f.length === t.length) for (const w of words) { const i = f.indexOf(w); if (i >= 0 && (at < 0 || i < at)) at = i; }
+  if (at < 0) return esc(t.slice(0, 160));
+  const from = Math.max(0, at - 50), to = Math.min(t.length, at + 120);
+  return (from ? '…' : '') + marked(t.slice(from, to), words) + (to < t.length ? '…' : '');
 }
 function snippet(e) {
   const t = entryText(e).trim();
@@ -21,12 +47,15 @@ function renderHome() {
   if (!entriesLoaded) return;
   if (typeof renderLockNudge === 'function') renderLockNudge();
   renderFolderRow();
-  const list = $('list'), all = live().filter(e => !pendingDel.has(e.id)), q = searchQ.trim().toLowerCase();
-  $('searchRow').hidden = all.length < 4 && !q;
+  const list = $('list'), all = live().filter(e => !pendingDel.has(e.id)), words = qWords(searchQ), q = words.length > 0;
+  $('searchRow').hidden = !all.length && !q;
   if (curFolder && !folderNames().includes(curFolder)) curFolder = '';
-  const shown = all.filter(e => (!curFolder || e.folder === curFolder) && matches(e, q));
+  const shown = all.filter(e => (q || !curFolder || e.folder === curFolder) && matches(e, words));      // a search looks in every folder
+  searchHits = q ? shown : null;
+  $('searchInfo').hidden = !q; $('searchInfo').textContent = q ? (shown.length ? shown.length + ' entr' + (shown.length > 1 ? 'ies' : 'y') + ' found, in all folders' : '') : '';
+  $('searchExport').hidden = !q || !shown.length;
   if (!shown.length) {
-    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches.' : curFolder ? 'Nothing in this folder yet. New entries you make now land here.' : '<b>Your journal is empty.</b>Tap the microphone and talk; the words appear as you go. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
+    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches “' + esc(searchQ.trim()) + '”.' : curFolder ? 'Nothing in this folder yet. New entries you make now land here.' : '<b>Your journal is empty.</b>Tap the microphone and talk; the words appear as you go. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
     renderSelDock(); return;
   }
   let html = '', day = '';
@@ -36,9 +65,9 @@ function renderHome() {
     const s = txState(e), rec = e.state === 'rec';
     const st = rec ? '<span class="st rec">● recording</span>' : s === 'busy' ? '<span class="st busy">transcribing</span>' : s === 'fail' ? '<span class="st fail">transcription failed</span>' : s === 'todo' ? '<span class="st">not transcribed</span>' : '';
     const pic = e.pics && e.pics.length ? e.pics[0] : null;
-    html += '<div class="card' + (selMode && selIds.has(e.id) ? ' sel' : '') + '" data-id="' + esc(e.id) + '">' + (selMode ? '<div class="tick"></div>' : '') + '<div class="when">' + esc(fmtTime(e.created)) + '</div><div class="body"><div class="name">' + esc(entryLabel(e)) + '</div>' +
-      (snippet(e) ? '<div class="snip">' + esc(snippet(e)) + '</div>' : '') +
-      '<div class="meta">' + (e.segs && e.segs.length ? esc(fmtDur(entryDur(e))) + ' · ' : '') + (e.pics && e.pics.length ? e.pics.length + ' photo' + (e.pics.length > 1 ? 's' : '') + ' · ' : '') + (!curFolder && e.folder ? '📁 ' + esc(e.folder) + ' · ' : '') + (e.cloud ? '☁ ' : '') + st + '</div></div>' +
+    html += '<div class="card' + (selMode && selIds.has(e.id) ? ' sel' : '') + '" data-id="' + esc(e.id) + '">' + (selMode ? '<div class="tick"></div>' : '') + '<div class="when">' + esc(fmtTime(e.created)) + '</div><div class="body"><div class="name">' + (q ? marked(entryLabel(e), words) : esc(entryLabel(e))) + '</div>' +
+      (q ? (entryText(e).trim() ? '<div class="snip">' + hitSnippet(e, words) + '</div>' : '') : snippet(e) ? '<div class="snip">' + esc(snippet(e)) + '</div>' : '') +
+      '<div class="meta">' + (e.segs && e.segs.length ? esc(fmtDur(entryDur(e))) + ' · ' : '') + (e.pics && e.pics.length ? e.pics.length + ' photo' + (e.pics.length > 1 ? 's' : '') + ' · ' : '') + ((q || !curFolder) && e.folder ? '📁 ' + (q ? marked(e.folder, words) : esc(e.folder)) + ' · ' : '') + (e.cloud ? '☁ ' : '') + st + '</div></div>' +
       (pic && safeThumb(pic.th) ? '<img class="th" src="' + pic.th + '" alt="">' : '') + '</div>';
   }
   list.innerHTML = html;
@@ -157,13 +186,14 @@ function entryMenu(e) {
   if (selMode) { if (!selIds.has(e.id)) { selIds.add(e.id); renderHome(); } return; }
   startSelect(e.id);
 }
+let searchHits = null;
 $('searchBox').addEventListener('input', ev => { searchQ = ev.target.value; renderHome(); });
+$('searchExport').addEventListener('click', () => { if (searchHits && searchHits.length) exportTextAsk(searchHits, 'journal-search-' + fold(searchQ.trim()).replace(/[^a-z0-9]+/g, '-').slice(0, 30)); });
 $('menuBtn').addEventListener('click', () => openSheet());
 
-// ---------- a new entry: write (pen) or dictate (microphone) ----------
+// ---------- a new entry: write (pen) or record (microphone) ----------
 async function newEntry(opts) {
   if (locked || passive || !Vault.isOpen() || recording) return;
-  if (dictOn) stopDictation();
   const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], pics: [], state: 'done', dur: 0, deleted: false, tx: false, mime: '', merged: true, folder: curFolder || '' };
   entries.unshift(e);
   if (opts && opts.keyboard) {
@@ -173,18 +203,13 @@ async function newEntry(opts) {
     renderHome(); return;
   }
   if (!(await persist(e))) { entries.splice(entries.indexOf(e), 1); return; }
-  openEntry(e, { focusText: !(opts && opts.dictate) });
+  openEntry(e, { focusText: true });
   renderHome();
-  if (opts && opts.dictate) setTimeout(() => { if (curEntry === e) startDictation(); }, 80);
 }
 $('noteBtn').addEventListener('click', () => newEntry());
-// The microphone: one tap, and the text window opens with the words flowing in. What runs behind
-// it follows the engine: the phone's recognition (text live), the Claude app (a new chat opens
-// there), or a key / the cloud (the audio records in the background, each part's text arrives
-// below as it is done, the recording stays playable).
-// The microphone records your voice: always kept, encrypted, playable. Its text comes online
-// (own key or cloud), or live from the phone where the phone can listen while it records.
-// Inside an entry, Dictate writes with the phone's recognition without recording.
+// The microphone records your voice into a new entry: kept encrypted, playable, and its text is
+// written afterwards from the recording (on this phone with Whisper, or online with a key).
+// Inside an entry, Record adds another recording below the ones there.
 $('recBtn').addEventListener('click', () => {
   if (settings.engine === 'claude') { openClaude(''); return; }
   if (settings.engine === 'keyboard') { newEntry({ keyboard: true }); return; }
@@ -204,16 +229,43 @@ function openEntry(e, opts) {
 // keyboard engine: the phone's keyboard does the listening (Gboard's microphone key), shown once per entry
 function keyboardHint() { const t = $('noteText'); if (t) t.placeholder = 'Tap the microphone key on the keyboard and talk…'; toast('Tap the microphone key on the keyboard'); }
 function leaveEntry() {
-  closeLightbox(); if (dictOn) stopDictation(); commitTitle(); commitText(); stopPlayer();
+  closeLightbox(); commitTitle(); commitText(); stopPlayer();
   const e = curEntry; curEntry = null;
-  if (e && !e.deleted && !(e.text || '').trim() && !(e.title || '').trim() && !(e.segs && e.segs.length) && !(e.pics && e.pics.length) && e.state !== 'rec' && !pendingSegList.some(s => s.entry === e.id && !s.drop)) { e.deleted = true; e.del_at = Date.now(); persist(e); renderHome(); }      // an entry left empty is not kept
+  if (e && !e.deleted && !(e.text || '').trim() && !(e.title || '').trim() && !(e.segs && e.segs.length) && !(e.pics && e.pics.length) && e.state !== 'rec' && !pendingSegList.some(s => s.entry === e.id)) { e.deleted = true; e.del_at = Date.now(); persist(e); renderHome(); }      // an entry left empty is not kept
 }
-// the audio card: player, 10 s back and on, speeds, and the state of its text
-function playerHtml(e) {
-  return '<div class="player"><div class="row"><button class="skip" id="skipBack" aria-label="10 seconds back">↺10</button><button class="play" id="playBtn" aria-label="Play">▶</button><button class="skip" id="skipFwd" aria-label="10 seconds on">10↻</button><input type="range" id="seek" min="0" max="' + Math.max(1, Math.round(entryDur(e))) + '" value="0" step="250"></div>' +
-      '<div class="times"><span id="tCur">0:00</span><span id="tTot">' + esc(fmtDur(entryDur(e))) + '</span></div>' +
-      '<div class="speed">' + [0.5, 0.75, 1, 1.25, 1.5, 2].map(r => '<button data-rate="' + r + '"' + (player.rate === r ? ' class="on"' : '') + '>' + r + '×</button>').join('') + '</div><div class="pstate" id="pState"></div>' +
-      '<div class="t" style="margin-top:8px"><span>Audio</span><span id="txBtns"></span></div><div class="st" id="txState"></div></div>';
+// ---------- recordings: one block per recording, above the text ----------
+// A recording (a "take") is one press of the microphone or of Record; a long one consists of
+// several stored parts, played one after the other. Older entries without takes are one recording.
+const takesOf = e => {
+  const m = new Map();
+  for (const g of (e.segs || [])) { const k = g.take || ''; if (!m.has(k)) m.set(k, []); m.get(k).push(g); }
+  return [...m].map(([id, segs]) => ({ id, segs: segs.slice().sort((a, b) => a.i - b.i) })).sort((a, b) => a.segs[0].i - b.segs[0].i);
+};
+const takeOf = (e, id) => takesOf(e).find(t => t.id === id) || null;
+const takeDur = t => t.segs.reduce((s, g) => s + (g.dur || 0), 0);
+const segOff = (t, i) => t.segs.slice(0, i).reduce((s, g) => s + (g.dur || 0), 0);
+const blockOf = id => [...document.querySelectorAll('#takes .player')].find(b => b.dataset.take === id) || null;
+function takeHtml(t, n) {
+  const d = takeDur(t);
+  return '<div class="player" data-take="' + esc(t.id) + '"><div class="phead"><span>🎙 Recording' + (n ? ' ' + n : '') + '</span><span class="pdur">' + esc(fmtDur(d)) + '</span></div>' +
+    '<div class="row"><button class="skip" data-act="back" aria-label="10 seconds back">↺10</button><button class="play" data-act="play" aria-label="Play">▶</button><button class="skip" data-act="fwd" aria-label="10 seconds on">10↻</button><input type="range" class="pseek" min="0" max="' + Math.max(1, Math.round(d)) + '" value="0" step="250"></div>' +
+    '<div class="times"><span class="pcur">0:00</span><span class="ptot">' + esc(fmtDur(d)) + '</span></div>' +
+    '<div class="speed">' + RATES.map(r => '<button data-rate="' + r + '">' + r + '×</button>').join('') + '</div><div class="pstate"></div>' +
+    '<div class="tstate"><span class="st"></span><span class="tbtn"></span></div></div>';
+}
+function renderTakes() {
+  const e = curEntry, box = $('takes'); if (!e || !box) return;
+  const ts = takesOf(e);
+  box.innerHTML = ts.map((t, k) => takeHtml(t, ts.length > 1 ? k + 1 : 0)).join('');
+  box.onclick = ev => {
+    const b = ev.target.closest('button'), blk = ev.target.closest('.player'); if (!b || !blk) return;
+    const id = blk.dataset.take, act = b.dataset.act;
+    if (act === 'play') togglePlay(id); else if (act === 'back') skipBy(id, -10000); else if (act === 'fwd') skipBy(id, 10000);
+    else if (act === 'tx') wantTranscribe(e); else if (b.dataset.rate) setRate(+b.dataset.rate);
+  };
+  box.oninput = ev => { if (!ev.target.classList.contains('pseek')) return; player.seeking = true; ev.target.closest('.player').querySelector('.pcur').textContent = fmtDur(+ev.target.value); };
+  box.onchange = ev => { if (!ev.target.classList.contains('pseek')) return; player.seeking = false; seekTo(ev.target.closest('.player').dataset.take, +ev.target.value); };
+  renderTxState(); syncPlayerUi();
 }
 function renderEntry() {
   const e = curEntry; if (!e || current() !== 'entry') return;
@@ -224,291 +276,32 @@ function renderEntry() {
   const di = $('entryDateIn'); if (document.activeElement !== di) di.value = toLocalInput(e.created);
   $('entryFolder').textContent = '📁 ' + (e.folder || 'No folder'); $('entryFolder').classList.toggle('on', !!e.folder);
   const body = $('entryBody'), nt = $('noteText');
-  if (nt && document.activeElement === nt) {                                                            // never redraw under a moving cursor
-    if (segs.length && !$('playBtn')) { nt.closest('.txcard').insertAdjacentHTML('beforebegin', playerHtml(e)); wirePlayer(); }      // a recording that just arrived still gets its player
-    else if ($('seek')) { $('seek').max = Math.max(1, Math.round(entryDur(e))); $('tTot').textContent = fmtDur(entryDur(e)); }
-    renderTxState(); return;
-  }
-  commitText();                                                                                         // nothing typed is lost to a redraw                               // never redraw under a moving cursor
-  let html = '';
-  if (segs.length) html += playerHtml(e);
-  html += '<div class="txcard' + (dictOn && dictEntry === e ? ' listening' : '') + '"><div class="t"><span class="tlabel">' + (dictOn && dictEntry === e ? '<i class="ldot"></i>Listening' : 'Text') + '</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="dictBtn" title="Dictate">' + (dictOn ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate') + '</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write, or tap Dictate…">' + esc(dictOn && dictEntry === e ? dictText('') : e.text || '') + '</textarea></div>';
-  html += '<div class="txcard"><div class="t"><span>Photos</span></div><div class="pics" id="picGrid"></div></div>';
-  body.innerHTML = html;
-  renderPics();
+  if (nt && document.activeElement === nt && nt.dataset.id === e.id) { commitText(); renderTakes(); renderRecordBtn(); return; }      // never redraw under a moving cursor; the recordings above and new text may change
+  commitText();                                                                                         // nothing typed is lost to a redraw
+  body.innerHTML = '<div id="takes"></div>' +
+    '<div class="txcard"><div class="t"><span class="tlabel">Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="recHere" title="Record">🎙 Record</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write, or tap Record…">' + esc(e.text || '') + '</textarea></div>' +
+    '<div class="txcard"><div class="t"><span>Photos</span></div><div class="pics" id="picGrid"></div></div>';
+  $('noteText').dataset.base = e.text || '';
+  renderTakes(); renderPics(); renderRecordBtn();
   $('picGrid').addEventListener('click', ev => { const im = ev.target.closest('img'); if (im) { openLightbox(e, +im.dataset.i); return; } if (ev.target.closest('#addPic')) { $('picInput').value = ''; $('picInput').click(); } });
-  renderRecBar(); renderTxState(); wirePlayer();
-  $('noteText').addEventListener('input', () => { if (dictOn && !clipRec) { stopDictation(); return; } clearTimeout(textTimer); textTimer = setTimeout(commitText, 500); });
+  renderRecBar();
+  $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 500); });
   $('noteText').addEventListener('blur', commitText);
-  $('dictBtn').addEventListener('click', () => dictOn ? stopDictation() : settings.engine === 'keyboard' ? (nt.focus(), keyboardHint()) : startDictation());
-  // Claude: dictation stops first (its text is only stored then); an empty entry opens a new chat to talk in
-  $('claudeBtn').addEventListener('click', () => { if (dictOn) stopDictation(); commitTitle(); commitText(); if (entryText(e)) openInClaude(e); else openClaude(''); });
+  $('recHere').addEventListener('click', () => {
+    if (recording) { if (recEntry === e) stopRecording(); return; }
+    if (settings.engine === 'keyboard') { $('noteText').focus(); keyboardHint(); return; }
+    startRecording(e);
+  });
+  $('claudeBtn').addEventListener('click', () => { commitTitle(); commitText(); if (entryText(e)) openInClaude(e); else openClaude(''); });
 }
-
-// ---------- dictation into the note, with the phone's own speech recognition ----------
-// Web Speech API: Google on Android Chrome, Apple on iPhone. Free, instant, no key, no second
-// app; but that audio goes to those providers, and Chrome ends after a pause, so it is started
-// again while dictation is on. The private way for long memos stays the big microphone.
-const SR = self.SpeechRecognition || self.webkitSpeechRecognition;
-// dictBase: the text before dictation started; dictFinal: text of the recognition sessions that
-// ended; dictSess: the final results of the running session, rebuilt from the whole result list on
-// every event (Android Chrome re-sends the same final result several times and resets
-// resultIndex, so appending per event duplicates lines).
-let dictRec = null, dictOn = false, dictBase = '', dictFinal = '', dictSess = '', dictEntry = null;
-function dictLang() { const l = settings.lang; return l === 'de' ? 'de-DE' : l === 'en' ? 'en-US' : (navigator.language && /^(de|en)/.test(navigator.language) ? navigator.language : 'de-DE'); }
-// the interim words repeat the running session's words: overlaid, never appended
-const dictText = interim => { const t = joinOverlap(joinOverlap(dictFinal, dictSess), interim || ''); return dictBase + t + (interim ? ' ' : ''); };
-// while dictating, the text card says so: a red dot, "Listening", and the field invites speech
-function renderDictState() {
-  const nt = $('noteText'), card = nt && nt.closest('.txcard'); if (!card) return;
-  const on = dictOn && dictEntry === curEntry;
-  card.classList.toggle('listening', on);
-  const lab = card.querySelector('.tlabel'); if (lab) lab.innerHTML = on ? '<i class="ldot"></i>Listening' : 'Text';
-  nt.placeholder = on ? 'Listening… speak now' : 'Write, or tap Dictate…';
-  const b = $('dictBtn'); if (b && !clipRec) b.textContent = on ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Dictate';
+// the Record button follows the recorder: Stop while this entry records, unavailable while another one does
+function renderRecordBtn() {
+  const b = $('recHere'), e = curEntry; if (!b || !e) return;
+  const here = recording && recEntry === e;
+  b.textContent = here ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Record';
+  b.disabled = recording && !here; b.classList.toggle('rec', here);
 }
-function dictApply(interim) { const nt = $('noteText'); if (!nt) return; nt.value = dictText(interim); nt.scrollTop = nt.scrollHeight; }
-async function startDictation() {
-  const e = curEntry; if (!e || locked || passive || recording || dictOn) return;
-  if (settings.engine !== 'phone') { startClipDictation(e); return; }
-  if (!SR) { popup('No dictation here', 'This browser has no built-in speech recognition. Use Chrome or Safari, the keyboard\'s microphone key, or choose a key or the cloud under Menu, Transcription.', [{ label: 'OK', cls: 'primary' }]); return; }
-  commitText(); keepAwake();
-  const cur = (e.text || '').replace(/\s+$/, '');
-  dictBase = cur ? cur + '\n' : ''; dictFinal = ''; dictSess = ''; dictEntry = e; dictOn = true; dictHeardAny = false;
-  renderDictState();
-  dictLocal = await srLocalReady(dictLang());                       // recognition on the phone itself, where Chrome offers it
-  if (!dictOn || dictEntry !== e) return;
-  const plan = dictVoicePlan();
-  if (plan !== 'no') await startDictVoice(e, plan);                 // the voice is recorded alongside, where the phone can
-  if (!dictOn || dictEntry !== e) { stopDictVoice(true); return; }
-  runDictSR(e);
-  const trying = (dictAudio && !dictVoiceProven()) || (dictLocal && !srLocalGet('ok|' + dictLang()));
-  clearTimeout(dictProbe);
-  if (trying) dictProbe = setTimeout(() => { if (dictOn && dictEntry === e && !dictHeardAny) dictFallBackSimple(); }, 4000);
-}
-// The phone gave no word for 4 s while the app tried something new on it (the voice recorded
-// alongside, or recognition on the device): dictation goes back to the plain way that works, and
-// the phone keeps it so (Menu, Transcription can try again). This needs no measurement at all.
-let dictProbe = null, dictHeardAny = false;
-function dictFallBackSimple() {
-  const e = dictEntry; if (!dictOn || !e) return;
-  if (dictLocal) { dictLocal = false; srLocalNote(dictLang(), 'failed'); }
-  if (dictAudio) { setDictVoiceMode('no'); stopDictVoice(false); }
-  const r = dictRec; dictRec = null; if (r) { try { r.abort(); } catch (err) {} }
-  dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
-  setTimeout(() => { if (dictOn && dictEntry === e && !dictRec) runDictSR(e); }, 400);
-  toast('Dictation switched to the simple mode on this phone. Please speak again.');
-}
-// one recognition session after the other (Android ends one after every pause: on again at once)
-function runDictSR(e) {
-  if (!dictOn || curEntry !== e || dictRec) return;
-  const r = new SR(); dictRec = r; dictSess = '';
-  r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
-  const local = dictLocal; if (local) { try { r.processLocally = true; } catch (err) {} }
-  let heardHere = false;
-  r.onresult = ev => {
-    heardHere = true;
-    // Android also lists the same utterance several times inside one event, each entry a little
-    // longer than the one before ("dies", "dies ist", "dies ist ein"): folded on their overlap
-    let finals = '', interim = '';
-    for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals = joinOverlap(finals, t); else interim = joinOverlap(interim, t); }
-    if ((finals || interim).trim()) { dictHeardAny = true; if (dictAudio) dictAudio.heard = true; if (local) srLocalNote('ok|' + r.lang, '1'); }
-    dictSess = finals; dictApply(interim); scheduleDictSave();
-  };
-  r.onerror = ev => {
-    const err = ev.error || '';
-    if (err === 'no-speech' || err === 'aborted') return;
-    // the recognition on the phone refuses (model missing, language not offered): the usual one takes over
-    if (local && !heardHere) { dictLocal = false; srLocalNote(r.lang, 'failed'); if (dictRec === r) { dictRec = null; try { r.abort(); } catch (e2) {} } setTimeout(() => runDictSR(e), 200); return; }
-    if (dictAudio && !dictAudio.ok && !dictAudio.heard) { dictVoiceFailed('sr'); return; }      // recognition cannot hear beside the recording: the recording gives way
-    if (err === 'not-allowed' || err === 'service-not-allowed') { stopDictation(); popup('Microphone', 'Journal has no permission to use the microphone for dictation. Allow it in the browser settings for this site.', [{ label: 'OK', cls: 'primary' }]); }
-  };
-  r.onend = () => { if (dictRec !== r) return; dictRec = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = ''; if (dictOn) runDictSR(e); };
-  try {
-    const v = dictAudio;
-    if (v && v.mode === 'track') { const t = v.track.clone(); v.clones.push(t); r.start(t); } else r.start();
-  } catch (err) { dictRec = null; if (dictAudio && !dictAudio.ok) { dictVoiceFailed('sr'); return; } stopDictation(); }
-}
-// ---------- recognition on the phone itself (newer Chrome) ----------
-// Chrome can recognise speech on the device: no network, no Google tones, and it need not stop at
-// every pause. Per language it is "available", "downloadable" (a one-time download of the language
-// pack), "downloading" or "unavailable". The answer is remembered per language for the menu. A
-// check that never came back (the page died during it) is not tried again on this phone.
-const SR_LOCAL_KEY = 'journal-sr-local';
-let dictLocal = false;
-const srLocalOffered = () => !!(SR && 'processLocally' in SR.prototype && typeof SR.available === 'function');
-const srLocalGet = lang => { try { return localStorage.getItem(SR_LOCAL_KEY + '|' + lang) || ''; } catch (e) { return ''; } };
-function srLocalNote(lang, st) { try { localStorage.setItem(SR_LOCAL_KEY + '|' + lang, st); } catch (e) {} }
-async function srLocalState(lang) {
-  if (!srLocalOffered()) return 'unavailable';
-  if (srLocalGet(lang) === 'failed') return 'failed';
-  let probe = ''; try { probe = localStorage.getItem(SR_LOCAL_KEY + '|probe') || ''; } catch (e) {}
-  if (probe === lang) { srLocalNote(lang, 'failed'); return 'failed'; }      // the last check never came back
-  try { localStorage.setItem(SR_LOCAL_KEY + '|probe', lang); } catch (e) {}
-  let st = 'unavailable';
-  try { st = await Promise.race([SR.available({ langs: [lang], processLocally: true }), new Promise(r => setTimeout(() => r('timeout'), 3000))]); } catch (e) { st = 'unavailable'; }
-  try { localStorage.removeItem(SR_LOCAL_KEY + '|probe'); } catch (e) {}
-  if (st !== 'timeout') srLocalNote(lang, st);
-  return st;
-}
-// ready for this dictation? A language pack that can be downloaded is fetched now for the next one.
-async function srLocalReady(lang) {
-  if (!settings.srLocal) return false;
-  const st = await srLocalState(lang);
-  if (st === 'available') return true;
-  if (st === 'downloadable') srLocalInstall([lang], true);
-  return false;
-}
-let srInstalling = false;
-async function srLocalInstall(langs, quiet) {
-  if (srInstalling || !srLocalOffered() || typeof SR.install !== 'function') return;
-  srInstalling = true;
-  if (!quiet || !srLocalGet('told')) { toast('Downloading speech recognition onto this phone. Dictation uses it once it is there.'); srLocalNote('told', '1'); }
-  try { for (const l of langs) { srLocalNote(l, 'downloading'); const ok = await SR.install({ langs: [l], processLocally: true }); srLocalNote(l, ok ? 'available' : 'unavailable'); } }
-  catch (e) { for (const l of langs) if (srLocalGet(l) === 'downloading') srLocalNote(l, 'unavailable'); }
-  finally { srInstalling = false; if ($('txBox')) renderTxBox(); }
-}
-
-// the dictated text is stored every few seconds while dictating, so a killed app keeps it
-let dictSaveTimer = null;
-function scheduleDictSave() {
-  if (dictSaveTimer) return;
-  dictSaveTimer = setTimeout(() => { dictSaveTimer = null; const e = dictEntry; if (!dictOn || !e) return; const t = (dictBase + joinOverlap(dictFinal, dictSess)).replace(/\s+$/, ''); if (t !== (e.text || '')) { e.text = t; persist(e); } }, 3000);
-}
-
-// ---------- the voice kept with dictation ----------
-// While the phone's recognition writes, the same microphone is recorded and stored encrypted as
-// the entry's audio (playable, slower or faster). Newer Chrome feeds the recognition from the
-// recording itself (one microphone, two uses). Where the phone cannot do both, the app notices
-// (recognition hears nothing while there is voice, or the recording stays silent while words
-// come), gives the microphone back to the recognition and remembers it for this phone.
-const DICT_VOICE_KEY = 'journal-dict-voice';            // '' not known yet, 'track', 'both', 'no'
-const dictVoiceMode = () => { try { return localStorage.getItem(DICT_VOICE_KEY) || ''; } catch (e) { return ''; } };
-const setDictVoiceMode = m => { try { if (m) localStorage.setItem(DICT_VOICE_KEY, m); else localStorage.removeItem(DICT_VOICE_KEY); localStorage.removeItem(DICT_VOICE_KEY + '-ok'); } catch (e) {} };
-// "what to try next" is not "it works": only a dictation with words and voice together proves it
-const dictVoiceProven = () => { try { return localStorage.getItem(DICT_VOICE_KEY + '-ok') === dictVoiceMode() && !!dictVoiceMode() && dictVoiceMode() !== 'no'; } catch (e) { return false; } };
-const proveDictVoice = m => { setDictVoiceMode(m); try { localStorage.setItem(DICT_VOICE_KEY + '-ok', m); } catch (e) {} };
-let srTrack = null, dictAudio = null, dictAudioBusy = 0;
-// does the recognition take a recorded track? (asked with a wrong argument: only a browser that knows the form refuses it)
-function srTakesTrack() {
-  if (srTrack === null) { srTrack = false; try { if (SR && 'processLocally' in SR.prototype) { const p = new SR(); try { p.start({}); try { p.abort(); } catch (e) {} } catch (e) { srTrack = e instanceof TypeError; } } } catch (e) {} }
-  return srTrack;
-}
-function dictVoicePlan() {
-  if (!settings.dictVoice || !self.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return 'no';
-  const known = dictVoiceMode();
-  if (known === 'no' || known === 'both') return known;
-  return srTakesTrack() ? 'track' : 'both';
-}
-async function startDictVoice(e, mode) {
-  let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: { ideal: 1 }, echoCancellation: false, noiseSuppression: true, autoGainControl: true } }); }
-  catch (err) { return; }                                                    // without the voice; the text still comes
-  const stopTracks = () => { for (const t of stream.getTracks()) { try { t.stop(); } catch (err) {} } };
-  if (!dictOn || dictEntry !== e) { stopTracks(); return; }
-  const mime = pickMime(); let r;
-  try { r = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : { audioBitsPerSecond: 48000 }); }
-  catch (err) { try { r = new MediaRecorder(stream); } catch (err2) { stopTracks(); return; } }
-  const taken = e.segs.map(g => g.i).concat(pendingSegList.filter(s => s.entry === e.id).map(s => s.i));
-  const seg = { id: uid(), i: taken.length ? Math.max(...taken) + 1 : 0, chunks: [], n: 0, start: Date.now(), pausedMs: 0, pausedAt: 0, mime: r.mimeType || mime || 'audio/webm', entry: e.id, done: false, dict: true, drop: false, voiced: 0 };
-  r.ondataavailable = ev => { if (!ev.data || !ev.data.size) return; const n = seg.n++; seg.chunks.push(ev.data); if (!seg.drop) partPut(seg.id, n, ev.data, { entry: seg.entry, i: seg.i, mime: seg.mime, dict: true }).catch(() => {}); };
-  let ended = false;
-  r.onstop = async () => {
-    if (ended) return; ended = true; stopTracks();
-    // a recording that compresses to almost nothing is silence (another app had the microphone):
-    // about 300 bytes a second, where a voice gives several thousand
-    if (!seg.drop && seg.judge) { const bytes = seg.chunks.reduce((a, c) => a + c.size, 0), secs = Math.max(1, (Date.now() - seg.start) / 1000); if (secs >= 2 && bytes / secs < 1000) { seg.drop = true; setDictVoiceMode('no'); toast('The voice could not be recorded on this phone while it writes. Dictation writes text only from now on.'); } }
-    try { if (seg.drop) { const k = pendingSegList.indexOf(seg); if (k >= 0) pendingSegList.splice(k, 1); seg.done = true; await partsDel(seg.id).catch(() => {}); } else await finishSegment(seg); }
-    finally { dictAudioBusy--; }
-  };
-  try { r.start(CHUNK_MS); } catch (err) { stopTracks(); return; }
-  const v = dictAudio = { stream, track: stream.getAudioTracks()[0], rec: r, seg, mode, clones: [], heard: false, voiced: 0, silent: 0, ok: false, ctx: null, timer: null, measured: false };
-  // the watch: is there voice in the recording, and does the recognition hear it?
-  try {
-    const ctx = v.ctx = new (self.AudioContext || self.webkitAudioContext)(); if (ctx.state !== 'running') ctx.resume().catch(() => {});
-    const an = ctx.createAnalyser(); an.fftSize = 512; ctx.createMediaStreamSource(stream).connect(an);
-    const data = new Uint8Array(an.fftSize);
-    v.timer = setInterval(() => {
-      if (dictAudio !== v || ctx.state !== 'running') return;
-      v.measured = true;
-      an.getByteTimeDomainData(data); let sum = 0; for (let i = 0; i < data.length; i++) { const x = (data[i] - 128) / 128; sum += x * x; }
-      const rms = Math.sqrt(sum / data.length);
-      if (rms > 0.02) { v.voiced += 100; seg.voiced = v.voiced; }
-      if (rms < 0.002) v.silent += 100;
-      if (v.ok) return;
-      if (v.heard && v.voiced >= 1500) { v.ok = true; proveDictVoice(v.mode); return; }          // both work on this phone
-      if (!v.heard && v.voiced >= 5000) { dictVoiceFailed('sr'); return; }                       // voice in the recording, no words: recognition cannot hear
-      if (v.heard && !v.voiced && v.silent >= 4000) dictVoiceFailed('silent');                    // words, but the recording is silent
-    }, 100);
-  } catch (err) {}
-}
-// recognition and recording could not share the microphone: the recording stops (kept if it holds
-// voice), recognition starts again on its own, and the phone remembers what to try next time
-function dictVoiceFailed(kind) {
-  const v = dictAudio; if (!v) return;
-  setDictVoiceMode(v.mode === 'track' ? 'both' : 'no');
-  const kept = kind !== 'silent' && v.voiced >= 800;
-  stopDictVoice(kind === 'silent');
-  const r = dictRec; dictRec = null; if (r) { try { r.abort(); } catch (err) {} }
-  dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
-  const e = dictEntry;
-  if (dictOn && e) setTimeout(() => { if (dictOn && dictEntry === e && !dictRec) runDictSR(e); }, 400);      // the microphone is free again
-  toast(kind === 'silent' ? 'The voice could not be recorded while the phone writes. Dictation goes on as text.' : 'The phone could not write while it records. ' + (kept ? 'The voice so far is kept; dictation goes on as text.' : 'Dictation goes on as text.'));
-}
-function stopDictVoice(drop) {
-  const v = dictAudio; if (!v) return; dictAudio = null;
-  clearInterval(v.timer); if (v.ctx) { try { v.ctx.close(); } catch (err) {} }
-  for (const t of v.clones) { try { t.stop(); } catch (err) {} }
-  v.seg.drop = !!drop || (v.measured ? v.voiced < 800 : Date.now() - v.seg.start < 1500);      // nothing said: nothing kept
-  v.seg.judge = !v.measured && v.heard;                    // not measured: judged by its size when it ends
-  dictAudioBusy++; pendingSegList.push(v.seg);
-  if (v.rec.state === 'inactive') { v.rec.onstop(); return; }
-  try { v.rec.stop(); } catch (err) { v.rec.onstop(); }
-  setTimeout(() => v.rec.onstop(), 5000);                  // a recorder that never says "stopped"
-}
-// with a key or the cloud: a short clip is recorded and sent to the service, the text is appended
-let clipRec = null, clipStream = null, clipChunks = [];
-async function startClipDictation(e) {
-  if (!txAvailable()) { wantTranscribe(e); return; }
-  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: { ideal: 1 }, noiseSuppression: true, autoGainControl: true } }); } catch (err) { popup('Microphone', 'The microphone could not be started: ' + errText(err), [{ label: 'OK', cls: 'primary' }]); return; }
-  if (curEntry !== e || dictOn) { for (const t of stream.getTracks()) t.stop(); return; }
-  const mime = pickMime(); let r;
-  try { r = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined); } catch (err) { for (const t of stream.getTracks()) t.stop(); toast('The recorder could not be started.'); return; }
-  commitText(); dictEntry = e; dictOn = true; clipRec = r; clipStream = stream; clipChunks = [];
-  const b = $('dictBtn'); if (b) b.textContent = '■ Stop';
-  r.ondataavailable = ev => { if (ev.data && ev.data.size) clipChunks.push(ev.data); };
-  r.onstop = async () => {
-    for (const t of stream.getTracks()) { try { t.stop(); } catch (err) {} }
-    const blob = new Blob(clipChunks, { type: r.mimeType || mime || 'audio/webm' }); clipChunks = [];
-    const nt = $('noteText'); if (nt && curEntry === e) nt.placeholder = 'Transcribing…';
-    const bb = $('dictBtn'); if (bb) { bb.textContent = '… Transcribing'; bb.disabled = true; }
-    try {
-      if (blob.size < 1000) throw new Error('nothing was recorded');
-      const out = await transcribeRequest(blob, { mime: blob.type }, (e.text || '').trim().slice(-200), e.lang || settings.lang);
-      const cur = (e.text || '').replace(/\s+$/, '');
-      e.text = (cur ? cur + '\n' : '') + out.text;
-      if (curEntry === e) { const t = $('noteText'); if (t) { t.value = e.text; t.scrollTop = t.scrollHeight; } }
-      await persist(e); renderHome();
-    } catch (err) { toast('Dictation failed: ' + errText(err)); }
-    finally { const b2 = $('dictBtn'); if (b2) { b2.textContent = '🎙 Dictate'; b2.disabled = false; } if (nt) nt.placeholder = 'Write, or tap Dictate…'; }
-  };
-  try { r.start(1000); } catch (err) { stopDictation(); }
-}
-function stopDictation() {
-  if (!dictOn) return;
-  if (clipRec) { dictOn = false; const c = clipRec; clipRec = null; clipStream = null; dictEntry = null; try { c.stop(); } catch (e) {} return; }
-  dictOn = false; const r = dictRec; dictRec = null; if (r) { try { r.stop(); } catch (e) {} }
-  clearTimeout(dictSaveTimer); dictSaveTimer = null; clearTimeout(dictProbe);
-  stopDictVoice(false);
-  if (!recording) releaseWake();
-  const e = dictEntry; dictEntry = null; dictFinal = joinOverlap(dictFinal, dictSess); dictSess = '';
-  // what stands in the field is what is kept: on Android the last phrase is often still "interim"
-  // when dictation stops, and the final result for it arrives after the stop (ignored)
-  const nt = $('noteText');
-  if (e) { e.text = (curEntry === e && nt && nt.dataset.id === e.id ? nt.value : dictBase + dictFinal).replace(/\s+$/, ''); if (nt && curEntry === e) nt.value = e.text; persist(e); renderHome(); }
-  renderDictState();
-}
-document.addEventListener('visibilitychange', () => { if (!document.hidden) return; if (dictOn) stopDictation(); commitTitle(); commitText(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) return; commitTitle(); commitText(); });
 // Open the Claude app (or claude.ai) on a new chat, with text as the first message when given.
 // Android: an intent URL opens the installed app directly and falls back to the web site.
 function openClaude(q) {
@@ -523,41 +316,62 @@ function renderPics() {
   const e = curEntry, grid = $('picGrid'); if (!e || !grid) return;
   grid.innerHTML = (e.pics || []).map((p, i) => '<img data-i="' + i + '" src="' + (safeThumb(p.th) || '') + '" alt="">').join('') + '<button class="addpic" id="addPic" title="Add a photo">+</button>';
 }
+// the state of each recording's text, in its block
+function takeTxState(segs) {
+  if (segs.every(g => g.st === 'done')) return 'done';
+  if (segs.some(g => g.st === 'busy')) return 'busy';
+  if (segs.some(g => g.st === 'fail')) return 'fail';
+  if (segs.every(g => g.st === 'off' || g.st === 'done')) return 'off';
+  return 'todo';
+}
 function renderTxState() {
-  const e = curEntry, el = $('txState'), bt = $('txBtns'); if (!e || !el) return;
-  const segs = e.segs || [], s = txState(e), done = segs.filter(g => g.st === 'done').length;
-  let msg = '', cls = '';
-  if (s === 'busy') { msg = 'Transcribing… ' + done + ' of ' + segs.length + ' parts done; the text is added below.'; cls = 'busy'; }
-  else if (s === 'fail') { const f = segs.find(g => g.st === 'fail'); msg = 'Transcription failed: ' + (f && f.err || 'unknown error') + (txFailUntil(e) ? ' · trying again ' + txFailUntil(e) : ''); cls = 'fail'; }
-  else if (s === 'todo') msg = txAvailable() ? (e.tx ? 'Waiting to transcribe…' : 'Not transcribed yet.') : 'Your voice, stored encrypted. Its text comes online once a transcription key is set.';
-  else if (s === 'done') msg = segs.every(g => g.live) ? 'Your voice, stored encrypted. The text below was written while you spoke.' : 'Transcribed; the text is below.';
-  else if (s === 'off') msg = 'Audio only.';
-  if (e.state === 'rec') { msg = 'Still recording.'; cls = ''; }
-  el.textContent = msg; el.className = 'st ' + cls;
-  if (segs.length > 1) { const row = document.createElement('div'); row.className = 'segrow'; segs.forEach((g, i) => { const sp = document.createElement('span'); sp.className = g.st === 'done' ? 'done' : g.st === 'busy' ? 'busy' : g.st === 'fail' ? 'fail' : ''; sp.textContent = (i + 1) + ' · ' + fmtDur(g.dur); row.appendChild(sp); }); el.appendChild(row); }
-  bt.innerHTML = '';
-  if (e.state !== 'rec' && segs.some(g => g.st !== 'done')) { const b = document.createElement('button'); b.textContent = s === 'busy' ? 'Transcribing…' : s === 'fail' ? 'Try again' : txAvailable() ? 'Transcribe' : 'Get text online'; b.disabled = s === 'busy'; b.addEventListener('click', () => wantTranscribe(e)); bt.appendChild(b); }
+  const e = curEntry; if (!e) return;
+  for (const t of takesOf(e)) {
+    const blk = blockOf(t.id); if (!blk) continue;
+    const el = blk.querySelector('.st'), bt = blk.querySelector('.tbtn'), s = takeTxState(t.segs), n = t.segs.length, done = t.segs.filter(g => g.st === 'done').length;
+    let msg = '', cls = '', btn = '';
+    if (recording && recEntry === e && recTake === t.id) msg = 'Still recording…';
+    else if (s === 'busy') { msg = (settings.engine === 'whisper' ? whisperStatus() || 'Writing the text on this phone…' : 'Getting its text…') + (n > 1 ? ' (part ' + Math.min(n, done + 1) + ' of ' + n + ')' : ''); cls = 'busy'; }
+    else if (s === 'fail') { const f = t.segs.find(g => g.st === 'fail'); msg = 'No text yet: ' + (f && f.err || 'unknown error') + (txFailUntil(e) ? ' · trying again ' + txFailUntil(e) : ''); cls = 'fail'; btn = 'Try again'; }
+    else if (s === 'todo') { if (txAvailable()) { msg = e.tx ? 'Its text follows…' : 'Its text is not written yet.'; if (!e.tx) btn = 'Write its text'; } else { msg = 'Your voice, stored encrypted.'; btn = 'Get its text'; } }
+    else if (s === 'off') { msg = 'Audio only.'; btn = 'Write its text'; }
+    else if (s === 'done') msg = '✓ Its text is in the entry below.';
+    el.textContent = msg; el.className = 'st ' + cls;
+    bt.innerHTML = btn ? '<button data-act="tx">' + esc(btn) + '</button>' : '';
+  }
 }
 function commitTitle() { const e = curEntry; if (!e) return; const v = $('entryTitle').value.trim(); if (v !== (e.title || '')) { e.title = v; persist(e); renderHome(); } }
+// The field and the entry's text can both change: you type, and a recording's text is added to
+// the entry meanwhile. The field remembers what it showed (its base); only what you typed is taken
+// over, and text added to the entry since then is appended to the field, cursor kept.
 function commitText() {
   clearTimeout(textTimer); const e = curEntry; if (!e) return;
-  if (dictOn) return;                                                                 // dictation owns the field until it stops
-  const nt = $('noteText'); if (nt && nt.dataset.id === e.id && nt.value !== (e.text || '')) { e.text = nt.value; persist(e); renderHome(); }
+  const nt = $('noteText'); if (!nt || nt.dataset.id !== e.id) return;
+  const base = nt.dataset.base != null ? nt.dataset.base : (e.text || ''), cur = e.text || '', val = nt.value;
+  if (val === base) { if (cur !== base) fieldTo(nt, cur); return; }                      // nothing typed: the field follows the entry
+  const next = cur === base ? val : cur.startsWith(base) ? val + cur.slice(base.length) : val;
+  e.text = next; persist(e); renderHome();
+  if (next !== val) fieldTo(nt, next); else nt.dataset.base = next;
+}
+function fieldTo(nt, text) {
+  if (document.activeElement === nt && text.startsWith(nt.value)) nt.setRangeText(text.slice(nt.value.length), nt.value.length, nt.value.length, 'preserve');
+  else nt.value = text;
+  nt.dataset.base = text;
 }
 $('entryTitle').addEventListener('input', () => { clearTimeout(titleTimer); titleTimer = setTimeout(commitTitle, 600); });
 $('entryTitle').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); commitTitle(); } });
 $('entryTitle').addEventListener('blur', commitTitle);
-$('entryBack').addEventListener('click', () => { if (dictOn) stopDictation(); commitTitle(); commitText(); back(); });
+$('entryBack').addEventListener('click', () => { commitTitle(); commitText(); back(); });
 $('entrySave').addEventListener('click', async () => {
   const e = curEntry; if (!e) return;
-  if (dictOn) stopDictation(); commitTitle(); commitText();
+  commitTitle(); commitText();
   const ok = await persist(e);
   if (!ok) return;                                                                      // persist already said why
   toast((e.text || '').trim() || (e.title || '').trim() || (e.segs && e.segs.length) || (e.pics && e.pics.length) ? 'Saved' : 'Nothing to save');
 });
 $('entryMore').addEventListener('click', () => {
   const e = curEntry; if (!e) return;
-  if (dictOn) stopDictation(); commitTitle(); commitText();
+  commitTitle(); commitText();
   const btns = [];
   if (entryText(e)) btns.push({ label: 'Share as text', fn: () => shareText(e) });
   if (e.segs && e.segs.length) btns.push({ label: 'Save or share the audio file', fn: () => shareAudio(e) });
@@ -624,32 +438,20 @@ async function purgeEntryData(e) {
   for (const g of mediaOf(e)) { await idb.del('segs', g.id).catch(() => {}); await partsDel(g.id).catch(() => {}); }
 }
 
-// ---------- player: one <audio>, the segments played one after the other ----------
-function wirePlayer() {
-  const btn = $('playBtn'); if (!btn) return;
-  btn.addEventListener('click', togglePlay);
-  $('skipBack').addEventListener('click', () => skipBy(-10000));
-  $('skipFwd').addEventListener('click', () => skipBy(10000));
-  const seek = $('seek');
-  seek.addEventListener('input', () => { player.seeking = true; $('tCur').textContent = fmtDur(+seek.value); });
-  seek.addEventListener('change', () => { player.seeking = false; seekTo(+seek.value); });
-  for (const b of $('entryBody').querySelectorAll('.speed button')) b.addEventListener('click', () => { player.rate = +b.dataset.rate; if (player.audio) player.audio.playbackRate = player.rate; for (const x of b.parentNode.children) x.classList.toggle('on', x === b); });
-  if (player.e === curEntry && player.audio) { btn.textContent = player.audio.paused ? '▶' : '❚❚'; updateSeek(); }
-}
-const segOffset = (e, i) => e.segs.slice(0, i).reduce((s, g) => s + (g.dur || 0), 0);
-function pState(msg) { const el = $('pState'); if (el) el.textContent = msg || ''; }
+// ---------- player: one <audio> for the entry; a recording's parts play one after the other ----------
+function pState(msg) { const blk = player.take != null ? blockOf(player.take) : null; const el = blk && blk.querySelector('.pstate'); if (el) el.textContent = msg || ''; }
 async function segBlob(e, g) {                                   // local first; a segment that only the cloud has is fetched and stored
   let b = await segGet(g.id, g.mime);
-  if (!b && typeof fetchSeg === 'function') { pState('Downloading part ' + (e.segs.indexOf(g) + 1) + '…'); b = await fetchSeg(e, g); pState(''); }
+  if (!b && typeof fetchSeg === 'function') { pState('Downloading the audio…'); b = await fetchSeg(e, g); pState(''); }
   return b;
 }
-async function loadSeg(e, i, at) {
-  if (!e.segs[i]) return false;
+async function loadSeg(e, t, i, at) {
+  const g = t.segs[i]; if (!g) return false;
   player.loading = true;
   try {
-    let url = player.urls.get(i);
-    if (!url) { const b = await segBlob(e, e.segs[i]); if (!b) { pState('This part of the audio is not on this device.'); return false; } url = URL.createObjectURL(b); player.urls.set(i, url); }
-    if (player.e !== e) return false;
+    let url = player.urls.get(g.id);
+    if (!url) { const b = await segBlob(e, g); if (!b) { pState('This part of the audio is not on this device.'); return false; } url = URL.createObjectURL(b); player.urls.set(g.id, url); }
+    if (player.e !== e || player.take !== t.id) return false;
     const a = player.audio; player.i = i; a.src = url; a.playbackRate = player.rate;
     if (at) { await new Promise(r => { a.addEventListener('loadedmetadata', r, { once: true }); setTimeout(r, 1500); }); try { a.currentTime = at / 1000; } catch (err) {} }
     return true;
@@ -659,45 +461,60 @@ function ensureAudio() {
   if (player.audio) return player.audio;
   const a = new Audio(); a.preload = 'auto';
   a.addEventListener('timeupdate', updateSeek);
-  a.addEventListener('ended', async () => { const e = player.e; if (!e) return; if (player.i + 1 < e.segs.length) { if (await loadSeg(e, player.i + 1, 0)) a.play().catch(() => {}); } else { player.want = false; const b = $('playBtn'); if (b) b.textContent = '▶'; } });
-  a.addEventListener('play', () => { const b = $('playBtn'); if (b) b.textContent = '❚❚'; });
-  a.addEventListener('pause', () => { const b = $('playBtn'); if (b && !player.want) b.textContent = '▶'; });
+  a.addEventListener('ended', async () => {
+    const e = player.e, t = e && takeOf(e, player.take); if (!t) return;
+    if (player.i + 1 < t.segs.length) { if (await loadSeg(e, t, player.i + 1, 0)) a.play().catch(() => {}); }
+    else { player.want = false; syncPlayerUi(); }
+  });
+  a.addEventListener('play', syncPlayerUi);
+  a.addEventListener('pause', () => { if (!player.want) syncPlayerUi(); });
   a.addEventListener('error', () => pState('This part could not be played.'));
   player.audio = a; return a;
 }
-async function togglePlay() {
-  const e = curEntry; if (!e || !e.segs.length) return;
-  const a = ensureAudio();
-  if (player.e !== e) { stopPlayer(); player.e = e; ensureAudio(); player.i = -1; }
+// the player now serves recording `id` of entry e
+function playerOn(e, id) { if (player.e !== e || player.take !== id) { stopPlayer(); player.e = e; player.take = id; player.i = -1; ensureAudio(); syncPlayerUi(); } }
+async function togglePlay(id) {
+  const e = curEntry, t = e && takeOf(e, id); if (!t) return;
+  playerOn(e, id);
   if (player.loading) return;
-  if (player.i < 0) { if (!(await loadSeg(e, 0, 0))) return; }
+  if (player.i < 0 && !(await loadSeg(e, t, 0, 0))) return;
   if (player.audio.paused) { player.want = true; player.audio.play().catch(err => pState('Could not play: ' + errText(err))); } else { player.want = false; player.audio.pause(); }
 }
-// 10 seconds back or on, across parts
-function skipBy(d) {
-  const e = curEntry; if (!e || !e.segs.length) return;
-  const now = player.e === e && player.audio && player.i >= 0 ? segOffset(e, player.i) + player.audio.currentTime * 1000 : 0;
-  const to = Math.max(0, Math.min(entryDur(e) - 250, now + d));
-  const seek = $('seek'); if (seek) seek.value = Math.round(to); $('tCur').textContent = fmtDur(to);
-  seekTo(to);
+function skipBy(id, d) {                                         // 10 seconds back or on, across parts
+  const e = curEntry, t = e && takeOf(e, id); if (!t) return;
+  const now = player.e === e && player.take === id && player.audio && player.i >= 0 ? segOff(t, player.i) + player.audio.currentTime * 1000 : 0;
+  const to = Math.max(0, Math.min(takeDur(t) - 250, now + d));
+  const blk = blockOf(id); if (blk) { blk.querySelector('.pseek').value = Math.round(to); blk.querySelector('.pcur').textContent = fmtDur(to); }
+  seekTo(id, to);
 }
-async function seekTo(ms) {
-  const e = curEntry; if (!e || !e.segs.length) return;
-  if (player.e !== e) { stopPlayer(); player.e = e; ensureAudio(); }
-  let i = 0; while (i + 1 < e.segs.length && segOffset(e, i + 1) <= ms) i++;
-  const at = ms - segOffset(e, i), wasPlaying = player.audio && !player.audio.paused;
-  if (!(await loadSeg(e, i, at))) return;
+async function seekTo(id, ms) {
+  const e = curEntry, t = e && takeOf(e, id); if (!t) return;
+  const wasPlaying = player.e === e && player.take === id && player.audio && !player.audio.paused;
+  playerOn(e, id);
+  let i = 0; while (i + 1 < t.segs.length && segOff(t, i + 1) <= ms) i++;
+  if (!(await loadSeg(e, t, i, ms - segOff(t, i)))) return;
   if (wasPlaying || player.want) player.audio.play().catch(() => {});
 }
+function setRate(r) { player.rate = r; if (player.audio) player.audio.playbackRate = r; syncPlayerUi(); }
 function updateSeek() {
-  const e = player.e, a = player.audio, seek = $('seek'); if (!e || !a || !seek || player.seeking || curEntry !== e) return;
-  const ms = segOffset(e, player.i) + a.currentTime * 1000;
-  seek.value = Math.round(ms); $('tCur').textContent = fmtDur(ms);
+  const e = player.e, a = player.audio; if (!e || !a || player.seeking || curEntry !== e) return;
+  const t = takeOf(e, player.take), blk = blockOf(player.take); if (!t || !blk || player.i < 0) return;
+  const ms = segOff(t, player.i) + a.currentTime * 1000;
+  blk.querySelector('.pseek').value = Math.round(ms); blk.querySelector('.pcur').textContent = fmtDur(ms);
+}
+// play buttons and speeds of every block, as the one player stands
+function syncPlayerUi() {
+  for (const blk of document.querySelectorAll('#takes .player')) {
+    const mine = player.e === curEntry && player.take === blk.dataset.take, playing = mine && player.audio && !player.audio.paused;
+    blk.querySelector('[data-act=play]').textContent = playing ? '❚❚' : '▶';
+    for (const b of blk.querySelectorAll('.speed button')) b.classList.toggle('on', +b.dataset.rate === player.rate);
+  }
+  updateSeek();
 }
 function stopPlayer() {
   if (player.audio) { try { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); } catch (e) {} }
   for (const u of player.urls.values()) URL.revokeObjectURL(u);
-  player.urls.clear(); player.e = null; player.i = -1; player.want = false; player.audio = null;
+  player.urls.clear(); player.e = null; player.take = null; player.i = -1; player.want = false; player.audio = null;
 }
 
 // ---------- sharing ----------
@@ -714,7 +531,7 @@ async function shareText(e) {
 }
 async function shareAudio(e) {
   const files = [];
-  for (const g of e.segs) { const b = await segBlob(e, g); if (b) files.push(new File([b], (e.title || 'memo').replace(/[^\w.-]+/g, '_') + '-' + (e.segs.indexOf(g) + 1) + '.' + extOf(g.mime), { type: g.mime })); }
+  for (const g of e.segs) { const b = await segBlob(e, g); if (b) files.push(new File([b], (e.title || 'recording').replace(/[^\w.-]+/g, '_') + '-' + (e.segs.indexOf(g) + 1) + '.' + extOf(g.mime), { type: g.mime })); }
   if (!files.length) { toast('No audio on this device.'); return; }
   if (navigator.share && navigator.canShare && navigator.canShare({ files })) { try { await navigator.share({ files, title: entryLabel(e) }); return; } catch (err) { if (err && err.name === 'AbortError') return; } }
   for (const f of files) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); }

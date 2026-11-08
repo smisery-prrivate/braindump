@@ -8,6 +8,7 @@
 let recording = false, recFinishing = false, recEntry = null, recStream = null, recorder = null, recSeg = null;
 let recStartAt = 0, recPausedAt = 0, recPausedMs = 0, recPaused = false, segTimer = null, recTick = null, segWrites = 0;
 let wakeLock = null, audioCtx = null, analyser = null, meterTimer = null, recDiscarding = false;
+let recTake = null, recFresh = false;      // the recording being made (one press of the microphone or of Record); whether it made its entry
 const MIMES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/ogg;codecs=opus', ''];
 const CHUNK_MS = 10000;
 const pickMime = () => MIMES.find(m => !m || (self.MediaRecorder && MediaRecorder.isTypeSupported(m))) || '';
@@ -15,9 +16,10 @@ const extOf = mime => /mp4|aac|m4a/.test(mime) ? 'm4a' : /ogg/.test(mime) ? 'ogg
 const recElapsed = () => (recPaused ? recPausedAt : Date.now()) - recStartAt - recPausedMs;
 
 // ---------- start ----------
-async function startRecording() {
+// Into a new entry (the microphone on the home screen), or as another recording below the ones
+// an entry already has (Record inside the entry).
+async function startRecording(target) {
   if (recording || recFinishing || locked || passive || !Vault.isOpen()) return;
-  if (dictOn) stopDictation();
   if (!self.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { popup('No recorder', 'This browser cannot record audio. Use Chrome or Safari.', [{ label: 'OK', cls: 'primary' }]); return; }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: { ideal: 1 }, echoCancellation: false, noiseSuppression: true, autoGainControl: true } }); }
@@ -25,57 +27,42 @@ async function startRecording() {
     popup('Microphone', e && e.name === 'NotAllowedError' ? 'Journal has no permission to use the microphone. Allow it in the browser settings for this site.' : 'The microphone could not be started: ' + errText(e), [{ label: 'OK', cls: 'primary' }]);
     return;
   }
-  if (recording || locked || passive) { for (const t of stream.getTracks()) t.stop(); return; }
+  const stopTracks = () => { for (const t of stream.getTracks()) { try { t.stop(); } catch (err) {} } };
+  if (recording || locked || passive) { stopTracks(); return; }
   const mime = pickMime();
-  const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], state: 'rec', dur: 0, deleted: false, tx: settings.transcribe === 'auto', mime };
-  entries.unshift(e);
-  if (!(await persist(e))) { for (const t of stream.getTracks()) t.stop(); entries.splice(entries.indexOf(e), 1); return; }      // the entry exists before the first byte
+  let e = target && !target.deleted && entries.includes(target) ? target : null;
+  const fresh = !e;
+  if (e) {
+    if (curEntry === e) { commitTitle(); commitText(); }
+    e.state = 'rec'; if (settings.transcribe === 'auto') e.tx = true; if (!e.mime) e.mime = mime;
+    if (!(await persist(e))) { e.state = 'done'; stopTracks(); return; }
+  } else {
+    e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], pics: [], folder: curFolder || '', state: 'rec', dur: 0, deleted: false, tx: settings.transcribe === 'auto', mime, merged: true };
+    entries.unshift(e);
+    if (!(await persist(e))) { stopTracks(); entries.splice(entries.indexOf(e), 1); return; }      // the entry exists before the first byte
+  }
   recEntry = e; recStream = stream; recording = true; recPaused = false; recPausedMs = 0; recStartAt = Date.now(); recDiscarding = false;
-  stream.getAudioTracks().forEach(t => { t.onended = () => { if (recording && recStream === stream) { toast('The microphone was taken away. The memo is kept.'); stopRecording(); } }; });
-  openEntry(e); renderRec();
+  recTake = uid(); recFresh = fresh;
+  stream.getAudioTracks().forEach(t => { t.onended = () => { if (recording && recStream === stream) { toast('The microphone was taken away. The recording is kept.'); stopRecording(); } }; });
+  if (curEntry !== e) openEntry(e); else renderEntry();
+  renderRec();
   keepAwake(); startMeter(stream);
   recTick = setInterval(renderRecTime, 250);
   startSegment();
-  if (settings.engine === 'phone' && settings.transcribe !== 'off' && dictVoiceProven()) startLive();      // only where this phone has shown it can listen while it records: the voice comes first
 }
-// ---------- liveRec recognition with the phone's own speech recognition ----------
-// Runs beside the recorder. Final results are collected per segment; a segment that ends takes
-// the text spoken while it ran. Chrome ends recognition after a pause, so it is started again.
-let liveRec = null;      // { rec, text (this segment), all, err, interim }
-function startLive() {
-  if (!SR || liveRec) return;
-  liveRec = { rec: null, text: '', sess: '', err: '', interim: '', on: true };      // text: sessions that ended; sess: the running session, rebuilt on every event (Android repeats finals)
-  const run = () => {
-    if (!liveRec || !liveRec.on || !recording || recPaused) return;
-    const r = new SR(); liveRec.rec = r; liveRec.sess = '';
-    r.lang = dictLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
-    r.onresult = ev => {
-      if (!liveRec) return; let finals = '', interim = '';
-      for (let i = 0; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) finals = joinOverlap(finals, t); else interim = joinOverlap(interim, t); }
-      liveRec.sess = finals; liveRec.interim = interim; renderLive();
-    };
-    r.onerror = ev => { if (!liveRec) return; const e = ev.error || ''; if (e === 'no-speech' || e === 'aborted') return; liveRec.err = e === 'not-allowed' || e === 'service-not-allowed' ? 'no permission for speech recognition' : e === 'audio-capture' ? 'the phone cannot listen while it records' : e === 'network' ? 'no connection to the speech service' : e; if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture') liveRec.on = false; renderLive(); };
-    r.onend = () => { if (!liveRec || liveRec.rec !== r) return; liveRec.rec = null; liveRec.text = joinOverlap(liveRec.text, liveRec.sess); liveRec.sess = ''; if (liveRec.on && recording && !recPaused) run(); };
-    try { r.start(); } catch (e) { liveRec.err = errText(e); liveRec.on = false; renderLive(); }
-  };
-  run(); renderLive();
-}
-function pauseLive() { if (!liveRec) return; const r = liveRec.rec; liveRec.rec = null; if (r) { try { r.stop(); } catch (e) {} } }
-function resumeLive() { if (liveRec && liveRec.on) { const was = liveRec; if (!was.rec) { liveRec = null; startLive(); if (liveRec) { liveRec.text = was.text; liveRec.err = was.err; } } } }
-// the text spoken during the segment that just ended; the liveRec buffer starts afresh
-function takeLive() { if (!liveRec) return undefined; const t = joinOverlap(liveRec.text, liveRec.sess); liveRec.text = ''; liveRec.sess = ''; liveRec.interim = ''; return t; }
-function stopLive() { if (!liveRec) return; liveRec.on = false; pauseLive(); }
-function renderLive() {
+// the next free part number in an entry (parts of all its recordings count on)
+const nextSegIndex = e => { const used = e.segs.map(g => g.i).concat(pendingSegList.filter(s => s.entry === e.id).map(s => s.i)); return used.length ? Math.max(...used) + 1 : 0; };
+// what the bar says about the text
+function renderRecNote() {
   const el = $('recLive'); if (!el) return;
-  if (!liveRec) { el.hidden = txAvailable(); el.className = 'reclive'; el.textContent = 'Your voice is being recorded. ' + (settings.engine === 'cloud' ? 'Sign in under Menu, Cloud, for its text.' : 'Its text comes online once a transcription key is set (Menu, Transcription).'); return; }
-  el.hidden = false;
-  if (liveRec.err && !liveRec.on) { el.textContent = 'No live text: ' + liveRec.err + '. The audio is kept. For text with the phone engine, stop and TAP the microphone to dictate instead; a key or the cloud can transcribe this audio later.'; el.className = 'reclive err'; return; }
-  const t = joinOverlap(joinOverlap(liveRec.text, liveRec.sess), liveRec.interim);
-  el.className = 'reclive'; el.textContent = t ? '…' + t.slice(-160) : (liveRec.err ? 'Listening… (' + liveRec.err + ')' : 'Listening…');
+  el.hidden = false; el.className = 'reclive';
+  el.textContent = !txAvailable() ? 'Recording your voice. For its text, choose a transcription under Menu, Transcription.'
+    : settings.engine === 'whisper' ? 'Recording. When you stop, the text is written on this phone.'
+    : 'Recording. Its text follows online, part by part.';
 }
 function startSegment() {
   if (!recording || !recStream) return;
-  const seg = { id: uid(), i: recEntry.segs.length + pendingSegs(), chunks: [], n: 0, start: Date.now(), pausedMs: 0, pausedAt: 0, mime: recEntry.mime, entry: recEntry.id, done: false };
+  const seg = { id: uid(), i: nextSegIndex(recEntry), take: recTake, chunks: [], n: 0, start: Date.now(), pausedMs: 0, pausedAt: 0, mime: recEntry.mime, entry: recEntry.id, done: false };
   let r;
   try { r = new MediaRecorder(recStream, seg.mime ? { mimeType: seg.mime, audioBitsPerSecond: 48000 } : { audioBitsPerSecond: 48000 }); }
   catch (e) { try { r = new MediaRecorder(recStream); } catch (e2) { recFailed('The recorder could not be started: ' + errText(e2)); return; } }
@@ -84,21 +71,19 @@ function startSegment() {
   r.ondataavailable = ev => {
     if (!ev.data || !ev.data.size) return;
     const n = seg.n++; seg.chunks.push(ev.data);
-    if (!recDiscarding) partPut(seg.id, n, ev.data, { entry: seg.entry, i: seg.i, mime: seg.mime }).catch(() => {});      // a crash keeps what was recorded so far
+    if (!recDiscarding) partPut(seg.id, n, ev.data, { entry: seg.entry, i: seg.i, take: seg.take, mime: seg.mime }).catch(() => {});      // a crash keeps what was recorded so far
   };
   r.onstop = () => finishSegment(seg);
   r.onerror = ev => { if (recSeg === seg) recFailed('Recording stopped: ' + errText(ev && ev.error)); };
   try { r.start(CHUNK_MS); } catch (e) { recFailed('The recorder could not be started: ' + errText(e)); return; }
   armSegTimer(settings.segMin * 60000);
 }
-const pendingSegs = () => pendingSegList.length;
 const pendingSegList = [];         // segments that have stopped but are not stored yet (their index is already taken)
 function armSegTimer(ms) { clearTimeout(segTimer); segTimer = setTimeout(rollSegment, ms); }
 // the running segment ends and the next one starts at once on the same stream; the gap is a few milliseconds
 function rollSegment() {
   if (!recording || recPaused || !recorder || recorder.state !== 'recording') return;
   const r = recorder, seg = recSeg; recorder = null; recSeg = null;
-  seg.liveRec = takeLive();
   pendingSegList.push(seg);
   try { r.stop(); } catch (e) { finishSegment(seg); }
   startSegment();
@@ -114,9 +99,7 @@ async function finishSegment(seg) {
   segWrites++;
   try {
     await segPut(seg.id, blob, { entry: e.id, mime: seg.mime, size: blob.size, dur, i: seg.i });
-    const liveText = typeof seg.liveRec === 'string' ? seg.liveRec : '';
-    const g = seg.dict ? { id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: '', st: 'done', live: true, merged: true }      // the voice of a dictation: its text is in the entry already
-      : { id: seg.id, i: seg.i, dur, mime: seg.mime, size: blob.size, text: liveText, st: liveText ? 'done' : (settings.transcribe === 'off' && !e.tx ? 'off' : 'todo'), live: !!liveText, merged: false };
+    const g = { id: seg.id, i: seg.i, take: seg.take, dur, mime: seg.mime, size: blob.size, text: '', st: settings.transcribe === 'off' && !e.tx ? 'off' : 'todo', merged: false };
     e.segs.push(g); mergeSeg(e, g);
     e.segs.sort((a, b) => a.i - b.i); e.dur = entryDur(e);
     if (await persist(e)) await partsDel(seg.id); else throw new Error('the entry could not be saved');      // the parts stay until the entry names the segment
@@ -131,12 +114,10 @@ function pauseRecording() {
   if (!recPaused) {
     try { recorder.pause(); } catch (e) { return; }
     recPaused = true; recPausedAt = Date.now(); if (recSeg) recSeg.pausedAt = recPausedAt; clearTimeout(segTimer);
-    pauseLive();
   } else {
     try { recorder.resume(); } catch (e) { return; }
     const gap = Date.now() - recPausedAt; recPausedMs += gap; if (recSeg) { recSeg.pausedMs += gap; recSeg.pausedAt = 0; }
     recPaused = false;
-    resumeLive();
     const used = recSeg ? Date.now() - recSeg.start - recSeg.pausedMs : 0;
     armSegTimer(Math.max(2000, settings.segMin * 60000 - used));
   }
@@ -145,39 +126,50 @@ function pauseRecording() {
 async function stopRecording() {
   if (!recording) return;
   recording = false; recFinishing = true; clearTimeout(segTimer); clearInterval(recTick);
-  const e = recEntry, r = recorder, seg = recSeg; recorder = null; recSeg = null;
-  if (seg) { seg.liveRec = takeLive(); pendingSegList.push(seg); }
-  stopLive(); liveRec = null;
+  const e = recEntry, r = recorder, seg = recSeg, take = recTake, fresh = recFresh; recorder = null; recSeg = null;
+  if (seg) pendingSegList.push(seg);
   const stopped = new Promise(res => { if (!r || r.state === 'inactive') { if (seg) finishSegment(seg); res(); return; } const t = setTimeout(() => { if (seg) finishSegment(seg); res(); }, 4000); r.addEventListener('stop', () => { clearTimeout(t); res(); }, { once: true }); try { r.requestData && r.state === 'recording' && r.requestData(); } catch (err) {} try { r.stop(); } catch (err) { clearTimeout(t); if (seg) finishSegment(seg); res(); } });
   stopMeter(); releaseWake();
   await stopped;
   while (segWrites > 0 || pendingSegList.length) await sleep(50);
   if (recStream) { for (const t of recStream.getTracks()) { try { t.stop(); } catch (err) {} } }
-  recStream = null; recEntry = null; recFinishing = false;
-  const kept = e && !e.deleted && !recDiscarding && e.segs.length > 0;
+  recStream = null; recEntry = null; recFinishing = false; recTake = null;
+  const kept = e && !e.deleted && !recDiscarding && e.segs.some(g => g.take === take);
+  const empty = e && !e.segs.length && !(e.text || '').trim() && !(e.title || '').trim() && !(e.pics && e.pics.length);
   if (e && !e.deleted) {
-    if (!kept) { e.deleted = true; e.del_at = Date.now(); e.state = 'done'; await persist(e); if (!recDiscarding) toast('Nothing was recorded.'); }
-    else { e.state = 'done'; e.dur = entryDur(e); await persist(e); }
+    if (!kept && fresh && empty) { e.deleted = true; e.del_at = Date.now(); e.state = 'done'; await persist(e); if (!recDiscarding) toast('Nothing was recorded.'); }
+    else { e.state = 'done'; e.dur = entryDur(e); await persist(e); if (!kept && !recDiscarding) toast('Nothing was recorded.'); }
   }
   recDiscarding = false;
   renderRecBar();
-  if (kept) { if (curEntry !== e && !locked) openEntry(e); else renderEntry(); if (!e.tx && settings.transcribe === 'ask' && settings.engine !== 'phone' && e.segs.some(g => g.st === 'todo')) askTranscribe(e); }
+  if (e && !e.deleted) { if (curEntry !== e && !locked && kept) openEntry(e); else if (curEntry === e) renderEntry(); if (kept && !e.tx && settings.transcribe === 'ask' && !['claude', 'keyboard'].includes(settings.engine) && e.segs.some(g => g.st === 'todo')) askTranscribe(e); }
   else if (curEntry === e) closeScreen('entry');
   renderHome();
+  scheduleTranscribe();
 }
 function discardRecording() {
   if (!recording) return;
   popup('Discard this recording?', 'What was recorded so far is deleted. This cannot be undone.', [
-    { label: 'Discard', cls: 'danger', fn: async () => { if (!recording) return; const e = recEntry; recDiscarding = true; await stopRecording(); if (e) purgeEntryData(e).catch(() => {}); toast('Recording discarded'); } },
+    { label: 'Discard', cls: 'danger', fn: async () => {
+      if (!recording) return; const e = recEntry, take = recTake, fresh = recFresh; recDiscarding = true; await stopRecording();
+      if (!e) return;
+      if (fresh && e.deleted) purgeEntryData(e).catch(() => {});
+      else {                                                                 // only this recording goes; the entry and its other recordings stay
+        const gone = e.segs.filter(g => g.take === take);
+        for (const g of gone) { idb.del('segs', g.id).catch(() => {}); partsDel(g.id).catch(() => {}); }
+        if (gone.length) { e.segs = e.segs.filter(g => g.take !== take); e.dur = entryDur(e); await persist(e); if (curEntry === e) renderEntry(); renderHome(); }
+      }
+      toast('Recording discarded');
+    } },
     { label: 'Keep recording', cls: 'quiet' }]);
 }
 function recFailed(msg) { toast(msg); if (recording) stopRecording(); }
 // the bar in the entry shows while this entry records; leaving the entry does not stop the recording
-function renderRecBar() { const bar = $('recBar'); if (!bar) return; bar.hidden = !(recording && curEntry && recEntry === curEntry); }
+function renderRecBar() { const bar = $('recBar'); if (!bar) return; bar.hidden = !(recording && curEntry && recEntry === curEntry); if (typeof renderRecordBtn === 'function') renderRecordBtn(); }
 
 // ---------- screen ----------
 function renderRec() {
-  renderRecBar(); renderLive();
+  renderRecBar(); renderRecNote();
   $('recState').textContent = recPaused ? 'Paused' : 'Recording';
   $('recDot').classList.toggle('paused', recPaused);
   $('recPause').textContent = recPaused ? 'Resume' : 'Pause';
@@ -186,8 +178,8 @@ function renderRec() {
 function renderRecTime() {
   if (!recording) return;
   $('recTime').textContent = fmtDur(recElapsed());
-  const n = recEntry ? recEntry.segs.length : 0;
-  $('recInfo').textContent = (n ? n + ' part' + (n > 1 ? 's' : '') + ' stored encrypted · ' : '') + 'a part is stored every ' + settings.segMin + ' min' + (settings.engine === 'key' || settings.engine === 'cloud' ? ' and its text follows below' : '') + (wakeLock ? ' · screen stays on' : ' · keep the screen on');
+  const n = recEntry ? recEntry.segs.filter(g => g.take === recTake).length : 0;
+  $('recInfo').textContent = (n ? n + ' part' + (n > 1 ? 's' : '') + ' stored encrypted · ' : '') + 'a part is stored every ' + settings.segMin + ' min' + (wakeLock ? ' · screen stays on' : ' · keep the screen on');
 }
 $('recPause').addEventListener('click', pauseRecording);
 $('recStop').addEventListener('click', () => stopRecording());
@@ -231,7 +223,7 @@ async function recoverRecordings() {
       if (!e || e.deleted || !blobs.length) { for (const k of ks) await idb.del('parts', k); continue; }
       const blob = new Blob(blobs, { type: meta.mime }), dur = await blobDuration(blob).catch(() => 0) || blobs.length * CHUNK_MS;
       await segPut(seg, blob, { entry: e.id, mime: meta.mime, size: blob.size, dur, i: meta.i });
-      if (!e.segs.some(g => g.id === seg)) { e.segs.push(meta.dict ? { id: seg, i: meta.i, dur, mime: meta.mime, size: blob.size, text: '', st: 'done', live: true, merged: true, recovered: true } : { id: seg, i: meta.i, dur, mime: meta.mime, size: blob.size, text: '', st: settings.transcribe === 'off' && !e.tx ? 'off' : 'todo', recovered: true }); e.segs.sort((a, b) => a.i - b.i); }
+      if (!e.segs.some(g => g.id === seg)) { e.segs.push({ id: seg, i: meta.i, take: meta.take || '', dur, mime: meta.mime, size: blob.size, text: '', st: settings.transcribe === 'off' && !e.tx ? 'off' : 'todo', recovered: true }); e.segs.sort((a, b) => a.i - b.i); }
       e.dur = entryDur(e); e.state = 'done';
       if (await persist(e)) for (const k of ks) await idb.del('parts', k);
       toast('A recording that was cut off was recovered.');

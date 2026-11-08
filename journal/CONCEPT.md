@@ -17,36 +17,30 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   encrypted as *parts*. A crash, a killed app or a dead battery loses at most the last ten
   seconds: the next start assembles the parts into a segment and closes the entry. A memo with
   nothing in it is dropped.
-- **Transcribe.** One *engine* setting (Menu, Transcription) decides how memos and dictated
-  notes become text. *Phone* (the default): the phone's own speech recognition listens live
-  while a memo records and while a note is dictated; free, no key, no account, but it cannot
-  read stored audio afterwards, listens in one language at a time, and that audio goes to
-  Google or Apple. *Own key*: Mistral (EU), ElevenLabs, Deepgram or OpenAI, entered once,
-  stored encrypted in the vault; each segment, and each dictated clip, goes straight from the
-  phone to the service. *Own cloud function*: sign in, the key stays on the server (see below).
-  Key and cloud understand German and English mixed in one memo and transcribe stored audio. Segments are transcribed one after
-  the other; the last words of the previous segment go along as a hint, so a sentence cut by the
-  segment border continues correctly. The transcript is editable; your edits are kept and marked.
-  "Transcribe again" starts over. A refused segment is retried after a growing pause (1, 4, 16 …
-  minutes, an hour at most) and the entry says why meanwhile. Setting: ask after each memo (the
-  default), always, or never (audio only).
-- **One text per entry.** An entry is one text, whatever its source: typed, dictated, or
-  transcribed from a long recording (each segment's transcript is appended to it once). Two
-  buttons on the home screen: the pen writes a new entry; the microphone opens the text window
-  and the words flow in. What runs behind it follows the engine: the phone's recognition (text
-  live, no audio file), the keyboard (the text window opens with the keyboard up and the
-  keyboard's own microphone key does the listening: Gboard's voice typing runs on the phone on
-  newer phones, keeps going through pauses, no start and stop tones), the Claude app (a new
-  chat opens there, a workaround), or a key / the
-  cloud (the audio records in the background with a small bar inside the entry, each part's text
-  arrives below as it is done, the recording stays playable). There is no separate recording
-  screen. Inside an entry, Dictate adds text with the phone's recognition and Claude hands the
-  entry over (Android: intent URL into the app). The entry view
-  has a Dictate button that follows the engine: with the phone engine the text appears live
-  (Chrome stops after pauses; the app starts it again while dictation is on); with a key or the
-  cloud a short clip is recorded and sent, and the text is appended. An entry left empty is not
-  kept. "Open in Claude" in the entry menu hands the entry's text to the Claude app or claude.ai
-  as the first message of a new chat.
+- **Record, then text.** The microphone on the home screen records into a new entry; Record
+  inside an entry adds another recording below the ones there. Each recording is its own block
+  above the text: play, 10 s back and on, a slider, speeds 0.5 to 2, and the state of its text.
+  When a recording stops, its text is written from the recording and appended to the entry's
+  text (one text per entry; you can edit it; text that arrives while you type is appended, your
+  typing is kept). Nothing listens live while it records: the phone's own speech recognition in
+  the browser stopped at every pause and, on Android, could not run beside a recording, so it is
+  gone (v25).
+- **Transcribe.** One setting (Menu, Transcription) decides how recordings become text.
+  *On this phone (Whisper)*, the default: Whisper runs in the browser in a worker; the audio
+  never leaves the phone. The library (Transformers.js) and its WebAssembly runtime (ONNX
+  Runtime) are part of the app (`vendor/`, versions and hashes in its README), so no script comes
+  from another server; only the model's weights (data) are downloaded once from Hugging Face and
+  kept in the browser's cache. Fast model about 80 MB, better German about 250 MB. Transformers.js
+  does not detect the language, so Whisper is asked once per part, on its first 30 seconds,
+  whether it hears German or English. Stock phrases Whisper invents over silence (subtitle
+  credits) are dropped. Whisper starts when the recording stops, never while it records.
+  *Own key*: Mistral (EU), ElevenLabs, Deepgram or OpenAI, entered once, stored encrypted in the
+  vault; each part goes straight from the phone to the service. *Own cloud function*: sign in,
+  the key stays on the server (see below). Parts are transcribed one after the other. A refused
+  part is retried after a growing pause (1, 4, 16 … minutes, an hour at most) and the recording
+  says why meanwhile. Setting: text automatically (the default), ask after each recording, or
+  audio only. *Claude app* and *keyboard microphone* record nothing: the microphone opens the
+  Claude app, or the text window with the keyboard up.
 - **Long press** on an entry in the list picks it (pick mode, below). Share and Claude live inside
   the entry.
 - **Date.** The date chip in the entry opens the phone's date and time picker: a memo added
@@ -66,6 +60,11 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   (location included), stored sealed like an audio segment, with a 160 px thumbnail inside the
   entry record for the list and the grid. A tap shows the photo full size (decrypted into memory
   only), with Delete. Photos travel in the backup file and in the cloud copy like segments.
+- **Search and export.** The search field above the list looks in every folder: title, text,
+  folder name and date ("november", "dienstag"), accents ignored ("uber" finds "über"), every
+  word must occur; hits are marked. "Export" next to it saves the hits as one plain text file;
+  Menu, Backup exports everything the same way (or as Markdown), oldest entry first, not
+  encrypted, after a warning.
 - **Journal.** Entries by day, newest first, with time, title, the first lines, length and state.
   Search over titles, notes and transcripts. Each entry has a player over all its segments (seek,
   1× to 2×), the transcript and a notes field. Typed notes without audio exist too (the pen).
@@ -109,7 +108,8 @@ is Snapdoc's, moved into its own namespace (labels `jn|…`, key file `journal-d
   password (PBKDF2, 600,000 rounds); the password never leaves the device. Every entry is sealed
   together with its change time and delete flag; the plain columns must say what the seal says or
   the row is ignored and reported. The server cannot read, alter or forge an entry.
-- **Transcription is the one place audio leaves the device, and only by your choice.** With an
+- **Transcription is the one place audio can leave the device, and only by your choice.** With
+  Whisper (the default) it does not: the audio stays on the phone. With an
   own key a segment goes, over TLS, straight to the chosen service; the key sits sealed in the
   `meta` store (`jn|stt`) and is re-encrypted with every key change like everything else. With
   the cloud function a segment goes to the app's own Supabase Edge Function, which checks the sign-in, optionally
@@ -119,8 +119,9 @@ is Snapdoc's, moved into its own namespace (labels `jn|…`, key file `journal-d
   monitoring unless zero data retention is granted; Deepgram: see its terms). The returned text is
   stored encrypted like everything else. "Never (audio only)" keeps everything on the device.
 - **Nothing else leaves the device.** No cookies, no analytics, no third-party scripts or fonts.
-  The Content-Security-Policy in `index.html` allows connections to the app's own origin and the
-  one Supabase project, and no inline script. The page refuses to run inside another site's frame.
+  The Content-Security-Policy in `index.html` allows connections to the app's own origin, the
+  one Supabase project, the transcription services and Hugging Face (the Whisper model's weights,
+  data only), and no inline script. The page refuses to run inside another site's frame.
 - **Shared web address.** All of the owner's GitHub Pages apps live on one origin, so a script
   running in a sibling app could reach Journal's storage; with a key-bound lock it cannot read
   the key silently. An address of its own is the full answer (then the passkey is set up again).
@@ -226,6 +227,13 @@ See `README.md`.
 
 ## History
 
+- v26 (2026-11-08): search is always there and looks in every folder, in title, text, folder
+  name and date, accents ignored, hits marked; everything (or the search hits) exports as one
+  plain text file, oldest first.
+- v25 (2026-11-03): Whisper on the phone, the new default: record, then the text is written
+  from the recording on the phone, nothing leaves it. Recordings are blocks above the text, each
+  with its own player; Record inside an entry adds one. The browser's live dictation is gone.
+  Fix: a redraw no longer overwrites text that a transcription has just added (since v16).
 - v24 (2026-11-03): the microphone always records the voice (kept, playable), whatever the
   engine (except Claude and keyboard); its text comes online with a key, or live only where the
   phone has shown it can listen while it records (the voice comes first). Dictate inside an entry

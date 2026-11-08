@@ -46,10 +46,10 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   const sealed = await page.evaluate(async () => { const e = journalDebug.entries[0]; const r = await journalDebug.idb.get('segs', e.segs[0].id); const u = new Uint8Array(r.data); const webm = u[12] === 0x1a && u[13] === 0x45; const recs = await journalDebug.idb.all('entries'); const plain = recs.some(x => JSON.stringify(Object.keys(x)).includes('title')); return { len: u.length, webm, plain, parts: (await journalDebug.idb.keys('parts')).length }; });
   check(sealed.len > 100 && !sealed.webm && !sealed.plain, 'segment and entry are ciphertext in IndexedDB; parts cleaned: ' + JSON.stringify(sealed));
   // player
-  await page.click('#playBtn'); await sleep(2500);
-  const pstate = await page.evaluate(() => ({ cur: document.getElementById('tCur').textContent, btn: document.getElementById('playBtn').textContent, err: document.getElementById('pState').textContent }));
+  await page.click('#takes [data-act=play]'); await sleep(2500);
+  const pstate = await page.evaluate(() => ({ cur: document.querySelector('#takes .pcur').textContent, btn: document.querySelector('#takes [data-act=play]').textContent, err: document.querySelector('#takes .pstate').textContent }));
   check(pstate.cur !== '0:00' && !pstate.err, 'playback runs: ' + JSON.stringify(pstate));
-  await page.click('#playBtn');
+  await page.click('#takes [data-act=play]');
   // title + note
   await page.fill('#entryTitle', 'Erster Test'); await page.press('#entryTitle', 'Enter');
   await page.fill('#noteText', 'Eine Notiz dazu.'); await sleep(1200);
@@ -64,7 +64,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check(await page.evaluate(async () => { const r = await journalDebug.idb.get('meta', 'stt'); return !!r && !new TextDecoder().decode(r.data).includes('mi_test'); }), 'key stored encrypted');
   await page.evaluate(() => back()); await sleep(500);
   await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
-  await page.click('#txBtns button');
+  await page.click('#takes .tbtn button');
   await page.waitForFunction(() => journalDebug.entries[0].segs.every(g => g.st === 'done'), null, { timeout: 20000 });
   const direct = await page.evaluate(() => journalDebug.entries[0].segs.map(g => g.text));
   console.log('direct', JSON.stringify(direct));
@@ -77,20 +77,15 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.mouse.move(box.x + 40, box.y + 20); await page.mouse.down(); await sleep(700); await page.mouse.up(); await sleep(300);
   check(await page.isVisible('#selDock') && (await page.$$('.card.sel')).length === 1 && await page.isVisible('#home:not([hidden])') && !(await page.isVisible('#popup.open')), 'long press picks the entry without a menu');
   await page.click('#selCancel'); await sleep(300);
-  await page.evaluate(() => { journalDebug.settings.engine = 'phone'; });
   await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
-  check(await page.isVisible('#dictBtn') && await page.isVisible('#claudeBtn'), 'Dictate and Claude buttons in the entry');
-  await page.click('#dictBtn'); await sleep(300);
-  check(await page.evaluate(() => !!(self.SpeechRecognition || self.webkitSpeechRecognition) || document.getElementById('popupBox').textContent.includes('No dictation')), 'dictation starts, or says the browser has none');
-  if (await page.isVisible('#popup.open')) await page.click('#popupBox button');
+  check(await page.isVisible('#recHere') && await page.isVisible('#claudeBtn') && (await page.textContent('#recHere')).includes('Record') && !(await page.$('#dictBtn')), 'Record and Claude buttons in the entry, no browser dictation');
   await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
 
-  // 2c2. the microphone records the voice inside the entry, whatever the engine; without a key it says how text comes
+  // 2c2. the microphone records the voice inside the entry; the bar says how its text comes
   const before = await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length);
-  await page.evaluate(() => { journalDebug.settings.engine = 'phone'; });
+  await page.evaluate(() => { journalDebug.settings.engine = 'whisper'; });
   await page.click('#recBtn'); await page.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
-  check(await page.evaluate(() => journalDebug.recording && !document.getElementById('entry').hidden && document.getElementById('recLive').textContent.includes('voice is being recorded')), 'phone engine: the microphone records the voice inside the entry and says how text comes');
-  check(await page.evaluate(() => !document.getElementById('recLive').textContent.includes('Listening')), 'unproven phone: no live recognition beside the recording (the voice comes first)');
+  check(await page.evaluate(() => journalDebug.recording && !document.getElementById('entry').hidden && document.getElementById('recLive').textContent.includes('written on this phone')), 'Whisper: the microphone records inside the entry, the text follows on this phone');
   await page.click('#recDiscard'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await page.waitForSelector('#home:not([hidden])', { timeout: 15000 }); await sleep(500);
   check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before, 'a discarded recording leaves nothing');
   // with a key the tap records in the background of the text window
@@ -100,15 +95,14 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.click('#recDiscard'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await page.waitForSelector('#home:not([hidden])', { timeout: 15000 }); await sleep(500);
   check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before && !(await page.evaluate(() => journalDebug.recording)), 'discard drops the recording');
 
-  // 2d. the phone engine: a memo recorded with it gets no "Transcribe?" question and says what it needs
-  await page.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.segMin = 0.05; });
+  // 2d. with an engine that gives recordings no text (Claude app), a recording says so and offers Whisper
+  await page.evaluate(() => { journalDebug.settings.engine = 'claude'; journalDebug.settings.segMin = 0.05; });
   await page.evaluate(() => journalDebug.startRecording()); await page.waitForSelector('#recBar:not([hidden])'); await sleep(4000);
-  const liveShown = await page.evaluate(() => !!(self.SpeechRecognition || self.webkitSpeechRecognition) ? !document.getElementById('recLive').hidden : document.getElementById('recLive').hidden);
-  check(liveShown, 'live line shown only when the browser has speech recognition');
+  check((await page.textContent('#recLive')).includes('choose a transcription'), 'the bar says the recording needs a transcription for its text');
   await page.click('#recStop'); await page.waitForSelector('#entry:not([hidden])', { timeout: 15000 }); await sleep(400);
-  check(!(await page.isVisible('#popup.open')), 'no "Transcribe?" question with the phone engine');
-  await page.click('#txBtns button'); await sleep(300);
-  check((await page.textContent('#popupBox')).includes('Online transcription') && (await page.textContent('#popupBox')).includes('Mistral'), 'stored audio explains how its text comes online');
+  check(!(await page.isVisible('#popup.open')), 'no "Transcribe?" question without a transcription');
+  await page.click('#takes .tbtn button'); await sleep(300);
+  check((await page.textContent('#popupBox')).includes('Whisper'), 'stored audio offers Whisper for its text');
   await page.click('#popupBox button.quiet'); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])');
   await page.evaluate(async () => { const e = journalDebug.entries[0]; e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); journalDebug.settings.engine = 'cloud'; saveSettings(); }); await sleep(300);
 
@@ -177,6 +171,35 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.click('#selDelete'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await sleep(7000);
   check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === liveBefore - 2 && !(await page.isVisible('#selDock')), 'deleted for good after the undo window, pick mode closed');
 
+  // 2g. search in every folder (accents ignored, hits marked); export as one plain text file
+  await page.evaluate(async () => {
+    const mk = async (title, text, folder, created) => { const e = { id: 'srch-' + Math.random().toString(36).slice(2), created, updated_at: Date.now(), title, text, segs: [], pics: [], folder, state: 'done', deleted: false, tx: false, merged: true }; journalDebug.entries.push(e); await journalDebug.persist(e); };
+    await mk('Am See', 'Heute waren wir am Bodensee und es war schön.', 'Reisen', new Date(2025, 10, 3, 9, 0).getTime());
+    await mk('Arbeit', 'Über das Projekt gesprochen.', '', new Date(2025, 10, 4, 18, 30).getTime());
+    sortEntries(); renderHome();
+  });
+  await page.click('#folderRow button[data-f="Reisen"]'); await sleep(200);
+  check(await page.isVisible('#searchBox'), 'the search field is always there');
+  await page.fill('#searchBox', 'uber projekt'); await sleep(300);
+  const s1 = await page.evaluate(() => ({ cards: [...document.querySelectorAll('.card')].map(c => c.querySelector('.name').textContent), marks: [...document.querySelectorAll('.card mark')].map(m => m.textContent), info: document.getElementById('searchInfo').textContent }));
+  console.log('search', JSON.stringify(s1));
+  check(s1.cards.length === 1 && s1.cards[0] === 'Arbeit' && s1.marks.includes('Über') && s1.marks.includes('Projekt') && s1.info.includes('1 entry found, in all folders'), 'search looks outside the open folder, ignores accents and marks the hits');
+  await page.fill('#searchBox', 'reisen'); await sleep(300);
+  check(await page.evaluate(() => [...document.querySelectorAll('.card .name')].map(n => n.textContent).join() === 'Am See'), 'search finds the folder name');
+  await page.fill('#searchBox', String(new Date(2025, 10, 3).toLocaleDateString(undefined, { month: 'long' })).toLowerCase() + ' 2025'); await sleep(300);
+  check(await page.evaluate(() => (document.querySelectorAll('.card').length === 2)), 'search finds the month and year');
+  await page.fill('#searchBox', 'bodensee'); await sleep(300);
+  check(await page.isVisible('#searchExport'), 'Export offered for the hits');
+  await page.click('#searchExport'); await page.waitForSelector('#popup.open');
+  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 10000 }), page.click('#popupBox button.primary')]);
+  const txt = require('fs').readFileSync(await dl.path(), 'utf8');
+  console.log('export', JSON.stringify(dl.suggestedFilename()), JSON.stringify(txt.slice(0, 260)));
+  check(/\.txt$/.test(dl.suggestedFilename()) && txt.startsWith('JOURNAL') && txt.includes('NOT encrypted') && txt.includes('Am See') && txt.includes('Bodensee') && !txt.includes('Projekt') && txt.includes('====='), 'the hits export as one plain text file');
+  const full = await page.evaluate(() => textOfEntries(journalDebug.entries.filter(x => !x.deleted)));
+  check(full.indexOf('Am See') < full.indexOf('Arbeit') && full.indexOf('Arbeit') < full.indexOf('Erster Test'), 'the full export runs oldest first');
+  await page.fill('#searchBox', ''); await page.click('#folderRow button[data-f=""]'); await sleep(200);
+  await page.evaluate(async () => { for (const e of journalDebug.entries.filter(x => x.id.startsWith('srch-'))) { journalDebug.entries.splice(journalDebug.entries.indexOf(e), 1); await journalDebug.idb.del('entries', e.id); } renderHome(); });
+
   // 3. sign in via PKCE link, then transcribe
   await page.evaluate(() => { localStorage.setItem('journal.linkAsked', String(Date.now())); localStorage.setItem('journal.pkce', 'verifier'); });
   await page.goto(BASE + '?code=goodcode'); await page.waitForFunction(() => window.journalDebug && journalDebug.session);
@@ -188,7 +211,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   // transcribe the memo (segments transcribed one after the other, with the previous tail as prompt)
   await page.evaluate(() => back()); await sleep(500);
   await page.click('.card'); await page.waitForSelector('#entry:not([hidden])');
-  if (await page.$('#txBtns button')) await page.click('#txBtns button');      // the queue may have started by itself right after the sign-in
+  if (await page.$('#takes .tbtn button')) await page.click('#takes .tbtn button');      // the queue may have started by itself right after the sign-in
   await page.waitForFunction(() => journalDebug.entries.find(x => !x.deleted).segs.every(g => g.st === 'done'), null, { timeout: 20000 }); await sleep(500);
   const tx = await page.evaluate(() => ({ text: document.getElementById('noteText').value, segs: journalDebug.entries.find(x => !x.deleted).segs.map(g => g.text) }));
   console.log('transcript', JSON.stringify(tx));
@@ -212,10 +235,10 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.evaluate(() => { journalDebug.settings.transcribe = 'auto'; });
   await page.evaluate(() => journalDebug.startRecording()); await sleep(4000); await page.click('#recStop'); await page.waitForSelector('#entry:not([hidden])', { timeout: 15000 });
   await page.waitForFunction(() => journalDebug.entries[0].segs.some(g => g.st === 'fail' || g.st === 'done'), null, { timeout: 15000 });
-  const st1 = await page.evaluate(() => ({ st: journalDebug.entries[0].segs.map(g => g.st), msg: document.getElementById('txState').textContent }));
+  const st1 = await page.evaluate(() => ({ st: journalDebug.entries[0].segs.map(g => g.st), msg: document.querySelector('#takes .st').textContent }));
   console.log('fail state', JSON.stringify(st1));
   check(st1.st[0] === 'fail' && /provider down/.test(st1.msg), 'failure shown with reason');
-  await page.click('#txBtns button');
+  await page.click('#takes .tbtn button');
   await page.waitForFunction(() => journalDebug.entries[0].segs.every(g => g.st === 'done'), null, { timeout: 15000 });
   check(true, 'retry succeeded');
   await page.click('#entryBack');
@@ -279,8 +302,8 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   console.log('pulled', JSON.stringify(pulled));
   check(pulled.title === 'Erster Test' && pulled.transcript === 'Edited by hand.' && pulled.local === false, 'second device pulled the sealed entry; audio not yet local');
   await p3.evaluate(() => back()); await sleep(500);
-  await p3.click('.card:has-text("Erster Test")'); await p3.waitForSelector('#playBtn');
-  await p3.click('#playBtn'); await p3.waitForFunction(() => document.getElementById('tCur').textContent !== '0:00', null, { timeout: 15000 });
+  await p3.click('.card:has-text("Erster Test")'); await p3.waitForSelector('#takes [data-act=play]');
+  await p3.click('#takes [data-act=play]'); await p3.waitForFunction(() => document.querySelector('#takes .pcur').textContent !== '0:00', null, { timeout: 15000 });
   check(await p3.evaluate(async () => !!(await journalDebug.segGet(journalDebug.entries.find(x => x.title === 'Erster Test').segs[0].id))), 'cloud segment fetched, decrypted and stored on play');
   // delete on device 3, tombstone reaches device 1
   const erId = await p3.evaluate(() => journalDebug.entries.find(x => x.title === 'Erster Test').id);
@@ -292,172 +315,111 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await page.waitForFunction(() => journalDebug.entries.find(x => x.title === 'Erster Test').deleted, null, { timeout: 20000 });
   check(!(await page.textContent('#list')).includes('Erster Test'), 'deletion propagated to the first device');
 
-  // 9. dictation stopped by Back keeps the last phrase that was still provisional (a fake recognition
-  // that, like Android, leaves the last phrase interim and sends its final only after stop())
-  const ctx4 = await browser.newContext({ viewport: { width: 400, height: 800 } }); await ctx4.grantPermissions(['microphone']);
-  await ctx4.addInitScript(() => {
-    class FakeSR { start() { const me = this; setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: 'erster Satz' }], { isFinal: true }), Object.assign([{ transcript: 'letzter Satz vorlaeufig' }], { isFinal: false })] }), 100); } stop() { const me = this; setTimeout(() => me.onend && me.onend(), 50); } abort() {} }
-    window.SpeechRecognition = window.webkitSpeechRecognition = FakeSR;
-  });
-  const p4 = await ctx4.newPage(); p4.on('pageerror', e => errors.push('p4 pageerror: ' + e.message));
-  await p4.goto(BASE); await p4.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p4.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
-  await p4.click('#noteBtn'); await p4.waitForSelector('#noteText'); await p4.click('#dictBtn'); await sleep(600);
-  check((await p4.inputValue('#noteText')).includes('letzter Satz vorlaeufig'), 'dictation shows the provisional phrase');
-  await p4.click('#entryBack'); await p4.waitForSelector('#home:not([hidden])'); await sleep(400);
-  check(await p4.evaluate(() => journalDebug.entries.some(x => !x.deleted && x.text.includes('erster Satz') && x.text.includes('letzter Satz vorlaeufig'))), 'Back during dictation keeps the provisional last phrase');
-  // typing while dictating stops dictation and keeps both
-  await p4.click('.card'); await p4.waitForSelector('#noteText'); await p4.click('#dictBtn'); await sleep(400);
-  await p4.focus('#noteText'); await p4.keyboard.press('End'); await p4.keyboard.type(' getippt'); await sleep(700);
-  await p4.click('#entrySave'); await sleep(400); await p4.click('#entryBack'); await p4.waitForSelector('#home:not([hidden])'); await sleep(300);
-  check(await p4.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.text.endsWith('getippt') && e.text.includes('letzter Satz vorlaeufig'); }), 'typing stops dictation and keeps dictated and typed text');
-
-  // Claude while dictating: dictation stops and the dictated text goes along
-  await p4.evaluate(() => { window.__claudeQ = null; window.openClaude = q => { window.__claudeQ = q; }; });
-  await p4.click('#noteBtn'); await p4.waitForSelector('#noteText'); await p4.click('#dictBtn'); await sleep(600);
-  await p4.click('#claudeBtn'); await sleep(300);
-  check(await p4.evaluate(() => typeof window.__claudeQ === 'string' && window.__claudeQ.includes('letzter Satz vorlaeufig') && !dictOn), 'Claude while dictating stops dictation and sends the dictated text');
-  await p4.click('#entryBack'); await p4.waitForSelector('#home:not([hidden])');
-  await p4.click('#noteBtn'); await p4.waitForSelector('#noteText'); await p4.click('#claudeBtn'); await sleep(200);
-  check(await p4.evaluate(() => window.__claudeQ === ''), 'Claude on an empty entry opens a new chat');
-
-  // 10. dictation keeps the voice: a second browser whose microphone hears a steady voice-like tone
+  // 10. Whisper on this phone: the microphone records, the text is written from the recording afterwards.
+  // Here the model cannot be downloaded (no access to Hugging Face), so the worker is replaced by a
+  // stand-in that checks what it is given (16 kHz samples of the real recording) and answers like Whisper.
   const wav = require('path').join(require('os').tmpdir(), 'journal-voice.wav');
   { const sr = 16000, n = sr * 30, buf = Buffer.alloc(44 + n * 2);
     buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVEfmt ', 8); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
     for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.sin(i / sr * 2 * Math.PI * 220) * 9000 * (0.6 + 0.4 * Math.sin(i / sr * 2 * Math.PI * 3))), 44 + i * 2);
     require('fs').writeFileSync(wav, buf); }
   const browser2 = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-audio-capture=' + wav, '--autoplay-policy=no-user-gesture-required'] });
-  const fakeSR = words => {
-    window.__words = words;
-    class FakeSR { start() { const me = this; if (window.__words) setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: window.__words }], { isFinal: true })] }), 300); } stop() { const me = this; setTimeout(() => me.onend && me.onend(), 50); } abort() {} }
-    window.SpeechRecognition = window.webkitSpeechRecognition = FakeSR;
+  const fakeWhisper = () => {
+    window.__wruns = []; const Real = window.Worker;
+    window.Worker = function (url, opts) {
+      if (!String(url).includes('whisper-worker')) return new Real(url, opts);
+      const w = { onmessage: null, onerror: null, dead: false, terminate() { w.dead = true; }, postMessage(m) {
+        const say = (d, ms) => setTimeout(() => { if (!w.dead && w.onmessage) w.onmessage({ data: d }); }, ms || 0);
+        if (m.type === 'load') { say({ type: 'ready', model: m.model }, 50); return; }
+        if (m.type !== 'run') return;
+        window.__wruns.push({ len: m.audio.length, lang: m.language, model: m.model, ctor: m.audio.constructor.name, rec: !!journalDebug.recording });
+        const k = window.__wruns.length;
+        say({ type: 'progress', loaded: 40, total: 80 }); say({ type: 'ready', model: m.model }, 300); say({ type: 'working', id: m.id, language: 'de' }, 320);
+        say({ type: 'result', id: m.id, text: 'Aufnahme Nummer ' + k + ' von Whisper', language: 'de' }, 900);
+      } };
+      return w;
+    };
   };
   const ctx5 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx5.grantPermissions(['microphone']);
-  await ctx5.addInitScript(fakeSR, 'heute war ein guter Tag');
+  await ctx5.addInitScript(fakeWhisper);
+  await ctx5.addInitScript(() => { if (!localStorage.getItem('test.migr')) { localStorage.setItem('test.migr', '1'); localStorage.setItem('journal.settings', JSON.stringify({ engine: 'phone', dictVoice: true, srLocal: true })); } });      // a phone set up in the dictation days
   const p5 = await ctx5.newPage(); p5.on('pageerror', e => errors.push('p5 pageerror: ' + e.message));
   await p5.goto(BASE); await p5.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p5.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
-  await p5.click('#noteBtn'); await p5.waitForSelector('#noteText'); await p5.click('#dictBtn'); await sleep(4000);
-  check(await p5.evaluate(() => localStorage.getItem('journal-dict-voice') === 'both' && localStorage.getItem('journal-dict-voice-ok') === 'both'), 'recognition and recording work side by side: proven and remembered for this phone');
-  await p5.click('#dictBtn'); await p5.waitForSelector('#playBtn', { timeout: 10000 }).catch(() => {}); await sleep(500);
-  const dv = await p5.evaluate(async () => { const e = journalDebug.entries.find(x => !x.deleted); const g = e && e.segs[0]; if (!g) return null; const r = await journalDebug.idb.get('segs', g.id); const u = new Uint8Array(r.data); return { n: e.segs.length, st: g.st, live: g.live, dur: g.dur, text: e.text, webm: u[0] === 0x1a && u[1] === 0x45, parts: (await journalDebug.idb.keys('parts')).length }; });
-  console.log('dictated voice', JSON.stringify(dv));
-  check(dv && dv.n === 1 && dv.st === 'done' && dv.live && dv.dur > 2500 && dv.text.includes('heute war ein guter Tag') && !dv.webm && dv.parts === 0, 'the dictated voice is stored sealed as the entry\'s audio, the text beside it');
-  check(await p5.isVisible('#playBtn') && await p5.isVisible('#skipBack') && await p5.isVisible('#skipFwd') && (await p5.$$('.speed button')).length === 6 && (await p5.textContent('.speed')).includes('0.5'), 'player with 10 s back and on, speeds from 0.5');
-  check(!(await p5.isVisible('#txBtns button')), 'no "How to get text" for dictated audio');
-  await p5.click('.speed button[data-rate="0.5"]'); await p5.click('#playBtn'); await sleep(1200);
-  const pl = await p5.evaluate(() => ({ t: +document.getElementById('seek').value }));
-  await p5.click('#skipFwd'); await sleep(600);
-  const pl2 = await p5.evaluate(() => +document.getElementById('seek').value);
-  check(pl.t > 0 && pl.t < 1200 && pl2 >= Math.min(pl.t + 1500, 2500), 'plays at half speed, skips forward (' + pl.t + ' → ' + pl2 + ' ms)');
-  // a phone whose recognition hears nothing beside the recording: the recording gives way, text goes on, remembered
+  check(await p5.evaluate(() => journalDebug.settings.engine === 'whisper' && !('dictVoice' in journalDebug.settings)), 'the old dictation setting becomes Whisper');
+  await p5.click('#recBtn'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(3000);
+  check((await p5.textContent('#recLive')).includes('written on this phone') && await p5.evaluate(() => window.__wruns.length === 0), 'while recording: the bar says the text follows, Whisper waits');
+  await p5.click('#recStop');
+  await p5.waitForFunction(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.segs.length && e.segs.every(g => g.st === 'done'); }, null, { timeout: 15000 }).catch(() => {});
+  await sleep(300);
+  const w1 = await p5.evaluate(() => ({ runs: window.__wruns, text: document.getElementById('noteText').value, blocks: document.querySelectorAll('#takes .player').length, st: (document.querySelector('#takes .st') || {}).textContent, entryText: journalDebug.entries.find(x => !x.deleted).text }));
+  console.log('whisper 1', JSON.stringify(w1));
+  check(w1.runs.length === 1 && w1.runs[0].ctor === 'Float32Array' && w1.runs[0].len > 16000 * 2.2 && w1.runs[0].len < 16000 * 4.5 && w1.runs[0].model === 'Xenova/whisper-base' && !w1.runs[0].rec, 'the recording reaches Whisper as 16 kHz samples after the stop (' + (w1.runs[0] && w1.runs[0].len) + ')');
+  check(w1.blocks === 1 && w1.entryText.includes('Aufnahme Nummer 1 von Whisper') && w1.text.includes('Aufnahme Nummer 1') && /text is in the entry/.test(w1.st), 'its text lands in the entry, the recording above it');
+  // a second recording from inside the entry
+  await p5.click('#recHere'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(2500);
+  check((await p5.textContent('#recHere')).includes('Stop'), 'Record turns into Stop while this entry records');
+  await p5.click('#recHere');
+  await p5.waitForFunction(() => window.__wruns.length === 2 && journalDebug.entries.find(x => !x.deleted).segs.every(g => g.st === 'done'), null, { timeout: 15000 }).catch(() => {});
+  await sleep(300);
+  const w2 = await p5.evaluate(() => ({ live: journalDebug.entries.filter(x => !x.deleted).length, heads: [...document.querySelectorAll('#takes .phead')].map(h => h.textContent), text: journalDebug.entries.find(x => !x.deleted).text }));
+  console.log('whisper 2', JSON.stringify(w2));
+  check(w2.live === 1 && w2.heads.length === 2 && w2.heads[0].includes('Recording 1') && w2.heads[1].includes('Recording 2') && w2.text.indexOf('Nummer 1') >= 0 && w2.text.indexOf('Nummer 2') > w2.text.indexOf('Nummer 1'), 'Record in the entry adds a second recording below the first, its text after the first');
+  // typing while a recording's text arrives: both stay, the cursor stays where it is
+  await p5.click('#noteText'); await p5.keyboard.press('End'); await p5.keyboard.type(' und getippt');
+  await p5.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); e.text = e.text + '\nText aus einer Aufnahme'; renderEntry(); });
+  await p5.keyboard.type(' weiter'); await p5.evaluate(() => document.activeElement.blur()); await sleep(300);
+  const mix = await p5.evaluate(() => ({ e: journalDebug.entries.find(x => !x.deleted).text, f: document.getElementById('noteText').value }));
+  console.log('typing while text arrives', JSON.stringify(mix));
+  check(mix.e === mix.f && mix.e.includes('und getippt weiter') && mix.e.includes('Text aus einer Aufnahme') && mix.e.includes('Nummer 2'), 'typing while a recording\'s text arrives: nothing is lost');
+  // each recording has its own player
+  await p5.click('#takes .player:nth-child(2) .speed button[data-rate="0.5"]'); await p5.click('#takes .player:nth-child(2) [data-act=play]'); await sleep(1200);
+  const pl = await p5.evaluate(() => { const b = document.querySelectorAll('#takes .player'); return { b1: b[0].querySelector('[data-act=play]').textContent, b2: b[1].querySelector('[data-act=play]').textContent, t2: +b[1].querySelector('.pseek').value, rate: [...b[0].querySelectorAll('.speed button.on')].map(x => x.dataset.rate).join() }; });
+  await p5.click('#takes .player:nth-child(2) [data-act=fwd]'); await sleep(700);
+  const t2b = await p5.evaluate(() => +document.querySelectorAll('#takes .player')[1].querySelector('.pseek').value);
+  check(pl.b2 === '❚❚' && pl.b1 === '▶' && pl.t2 > 0 && pl.t2 < 1200 && pl.rate === '0.5' && t2b > pl.t2 + 500, 'each recording plays on its own: half speed, 10 s on, the other one stays still (' + JSON.stringify(pl) + ' → ' + t2b + ')');
+  await p5.click('#takes .player:nth-child(2) [data-act=play]');
+  // a third recording discarded: the entry and its first two stay
+  await p5.click('#recHere'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
+  await p5.click('#recDiscard'); await p5.waitForSelector('#popup.open'); await p5.click('#popupBox button.danger'); await sleep(1500);
+  check(await p5.evaluate(() => { const live = journalDebug.entries.filter(x => !x.deleted); return live.length === 1 && takesOf(live[0]).length === 2 && document.querySelectorAll('#takes .player').length === 2 && !journalDebug.recording; }), 'discarding a third recording keeps the entry and its first two');
+  // the menu: Whisper chosen, the model on this phone
+  await p5.evaluate(() => back()); await p5.waitForSelector('#home:not([hidden])'); await p5.click('#menuBtn'); await p5.waitForSelector('#setWModel');
+  check(await p5.evaluate(() => document.getElementById('setEngine').value === 'whisper' && document.getElementById('wState').textContent.includes('on this phone') && document.getElementById('wFetch').hidden), 'menu: Whisper chosen, the speech model is on this phone');
+  await p5.evaluate(() => back());
+
+  // 11. the real library and runtime against a stand-in for Hugging Face: the right model files are
+  // asked for, the runtime (WebAssembly) loads from the app's own folder and the page's rules allow it
   const ctx6 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx6.grantPermissions(['microphone']);
-  await ctx6.addInitScript(fakeSR, '');
+  const hf = [], vendor = [];
+  await ctx6.route(/huggingface\.co|\.hf\.co/, route => {
+    const u = route.request().url(); hf.push(u.replace(/^https:\/\/[^/]+/, ''));
+    const head = { 'access-control-allow-origin': '*' };
+    if (/\/config\.json$/.test(u)) return route.fulfill({ status: 200, contentType: 'application/json', headers: head, body: JSON.stringify({ model_type: 'whisper', architectures: ['WhisperForConditionalGeneration'], d_model: 512, encoder_layers: 6, decoder_layers: 6, num_mel_bins: 80, vocab_size: 51865 }) });
+    if (/preprocessor_config\.json$/.test(u)) return route.fulfill({ status: 200, contentType: 'application/json', headers: head, body: JSON.stringify({ feature_extractor_type: 'WhisperFeatureExtractor', processor_class: 'WhisperProcessor', feature_size: 80, sampling_rate: 16000, n_fft: 400, hop_length: 160, chunk_length: 30, n_samples: 480000, nb_max_frames: 3000, padding_value: 0 }) });
+    if (u.endsWith('.json')) return route.fulfill({ status: 200, contentType: 'application/json', headers: head, body: '{}' });
+    return route.fulfill({ status: 200, contentType: 'application/octet-stream', headers: head, body: Buffer.from('not an onnx model') });
+  });
+  ctx6.on('request', r => { if (/\/vendor\//.test(r.url())) vendor.push(r.url().replace(/^http:\/\/[^/]+/, '')); });
   const p6 = await ctx6.newPage(); p6.on('pageerror', e => errors.push('p6 pageerror: ' + e.message));
   await p6.goto(BASE); await p6.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p6.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
-  await p6.click('#noteBtn'); await p6.waitForSelector('#noteText'); await p6.click('#dictBtn'); await p6.waitForFunction(() => localStorage.getItem('journal-dict-voice') === 'no', null, { timeout: 15000 }).catch(() => {}); await sleep(800);
-  const f6 = await p6.evaluate(() => ({ mode: localStorage.getItem('journal-dict-voice'), dict: dictOn, voice: !!dictAudio, segs: journalDebug.entries.find(x => !x.deleted).segs.length }));
-  console.log('no hearing beside the recording', JSON.stringify(f6));
-  check(f6.mode === 'no' && f6.dict && !f6.voice && f6.segs === 1, 'recognition deaf beside the recording: voice so far kept, dictation goes on as text, remembered');
-  await p6.click('#dictBtn'); await sleep(300); await p6.click('#entryBack'); await p6.waitForSelector('#home:not([hidden])');
-  await p6.click('#noteBtn'); await p6.waitForSelector('#noteText'); await p6.click('#dictBtn'); await sleep(1500);
-  check(await p6.evaluate(() => dictOn && !dictAudio), 'next dictation on this phone writes text only');
-  // 11. recognition on the phone itself: used where available, downloaded where it can be, never asked again after a check that died
-  const ctx8 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx8.grantPermissions(['microphone']);
-  await ctx8.addInitScript(() => {
-    window.__made = []; window.__installs = [];
-    class FakeSR { constructor() { this.processLocally = false; window.__made.push(this); } start() { const me = this; if (this.processLocally && window.__localFails) { setTimeout(() => me.onerror && me.onerror({ error: 'language-not-supported' }), 100); return; } setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: 'lokal erkannt' }], { isFinal: true })] }), 200); } stop() { const me = this; setTimeout(() => me.onend && me.onend(), 50); } abort() {} }
-    FakeSR.prototype.processLocally = false;
-    FakeSR.available = async o => window.__avail || 'available';
-    FakeSR.install = async o => { window.__installs.push(o.langs[0]); return true; };
-    window.SpeechRecognition = window.webkitSpeechRecognition = FakeSR;
-  });
-  const p8 = await ctx8.newPage(); p8.on('pageerror', e => errors.push('p8 pageerror: ' + e.message));
-  await p8.goto(BASE); await p8.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p8.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.lang = 'de'; saveSettings(); });
-  await p8.click('#noteBtn'); await p8.waitForSelector('#noteText'); await p8.click('#dictBtn'); await sleep(1500);
-  check(await p8.evaluate(() => dictOn && window.__made.length > 0 && window.__made[window.__made.length - 1].processLocally === true && localStorage.getItem('journal-sr-local|de-DE') === 'available'), 'available on the phone: dictation recognises on the device');
-  await p8.click('#dictBtn'); await sleep(300); await p8.click('#entryBack'); await p8.waitForSelector('#home:not([hidden])');
-  // downloadable: this dictation as before, the pack is fetched for the next one
-  await p8.evaluate(() => { window.__avail = 'downloadable'; localStorage.removeItem('journal-sr-local|de-DE'); });
-  await p8.click('#noteBtn'); await p8.waitForSelector('#noteText'); await p8.click('#dictBtn'); await sleep(1500);
-  check(await p8.evaluate(() => dictOn && window.__made[window.__made.length - 1].processLocally === false && window.__installs.includes('de-DE') && localStorage.getItem('journal-sr-local|de-DE') === 'available'), 'downloadable: dictation goes on as before, the language pack is downloaded');
-  await p8.click('#dictBtn'); await sleep(300); await p8.click('#entryBack'); await p8.waitForSelector('#home:not([hidden])');
-  // available, but the recognition on the phone refuses: the usual one takes over at once
-  await p8.evaluate(() => { window.__avail = 'available'; window.__localFails = true; localStorage.removeItem('journal-sr-local|de-DE'); });
-  await p8.click('#noteBtn'); await p8.waitForSelector('#noteText'); await p8.click('#dictBtn'); await sleep(1500);
-  check(await p8.evaluate(() => dictOn && localStorage.getItem('journal-sr-local|de-DE') === 'failed' && window.__made[window.__made.length - 1].processLocally === false && document.getElementById('noteText').value.includes('lokal erkannt')), 'on-device recognition refuses: the usual one takes over, the words still come');
-  await p8.click('#dictBtn'); await sleep(300); await p8.click('#entryBack'); await p8.waitForSelector('#home:not([hidden])');
-  await p8.evaluate(() => { window.__localFails = false; });
-  // a check that never came back (the page died): not asked again, dictation as before
-  await p8.evaluate(() => { window.__avail = 'available'; localStorage.removeItem('journal-sr-local|de-DE'); localStorage.setItem('journal-sr-local|probe', 'de-DE'); });
-  await p8.click('#noteBtn'); await p8.waitForSelector('#noteText'); await p8.click('#dictBtn'); await sleep(1500);
-  check(await p8.evaluate(() => dictOn && window.__made[window.__made.length - 1].processLocally === false && localStorage.getItem('journal-sr-local|de-DE') === 'failed'), 'a check that killed the page is not tried again');
-  await p8.click('#dictBtn'); await sleep(300);
-  await p8.evaluate(() => back()); await p8.waitForSelector('#home:not([hidden])'); await p8.click('#menuBtn'); await p8.waitForSelector('#setSrLocal');
-  check((await p8.textContent('#txBox')).includes('German: did not work') && await p8.isVisible('#srLocalRetry'), 'menu shows the state per language and offers to check again');
-  // 12. what happened on a real phone: the Google tone, then no words, and the level cannot be measured
-  // (no AudioContext): within 4 s dictation goes back to the plain way and the words come
-  const ctx9 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx9.grantPermissions(['microphone']);
-  await ctx9.addInitScript(() => {
-    window.AudioContext = window.webkitAudioContext = function () { throw new Error('no audio context here'); };
-    window.__made = [];
-    // beside the recording, or on the device, the recognition hears nothing; alone it hears
-    class FakeSR { constructor() { window.__made.push(this); } start(track) { const me = this; this.__track = !!track; const deaf = this.processLocally || window.__recording; if (deaf) return; setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: 'jetzt geht es wieder' }], { isFinal: true })] }), 200); } stop() { const me = this; setTimeout(() => me.onend && me.onend(), 50); } abort() {} }
-    FakeSR.prototype.processLocally = false;
-    FakeSR.available = async () => 'available'; FakeSR.install = async () => true;
-    window.SpeechRecognition = window.webkitSpeechRecognition = FakeSR;
-    const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getUserMedia = async c => { const s = await gum(c); window.__recording = true; for (const t of s.getTracks()) { const st = t.stop.bind(t); t.stop = () => { window.__recording = false; st(); }; } return s; };
-  });
-  const p9 = await ctx9.newPage(); p9.on('pageerror', e => errors.push('p9 pageerror: ' + e.message));
-  await p9.goto(BASE); await p9.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p9.evaluate(() => { journalDebug.settings.engine = 'phone'; journalDebug.settings.lang = 'de'; saveSettings(); localStorage.setItem('journal-dict-voice', 'both'); });      // left by an earlier failed attempt: "try both next", never proven
-  await p9.click('#noteBtn'); await p9.waitForSelector('#noteText'); await p9.click('#dictBtn'); await sleep(800);
-  check(await p9.evaluate(() => document.querySelector('.txcard.listening') && document.querySelector('.tlabel').textContent.includes('Listening') && document.getElementById('noteText').placeholder.includes('speak now')), 'while dictating the text card shows "Listening"');
-  await p9.waitForFunction(() => document.getElementById('noteText').value.includes('jetzt geht es wieder'), null, { timeout: 9000 }).catch(() => {});
-  const f9 = await p9.evaluate(() => ({ text: document.getElementById('noteText').value, voice: localStorage.getItem('journal-dict-voice'), local: localStorage.getItem('journal-sr-local|de-DE'), on: dictOn, rec: !!dictAudio, toast: document.getElementById('toast').textContent }));
-  console.log('no words, no measuring', JSON.stringify(f9));
-  check(f9.text.includes('jetzt geht es wieder') && f9.voice === 'no' && f9.local === 'failed' && f9.on && !f9.rec, 'no word within 4 s: back to plain dictation, the words come, remembered for this phone');
-  await p9.click('#dictBtn'); await sleep(300);
-  check(await p9.evaluate(() => !document.querySelector('.txcard.listening') && document.querySelector('.tlabel').textContent === 'Text'), 'after Stop the card is back to "Text"');
-  await p9.click('#entryBack'); await p9.waitForSelector('#home:not([hidden])');
-  await p9.click('#noteBtn'); await p9.waitForSelector('#noteText'); await p9.click('#dictBtn'); await sleep(1500);
-  check(await p9.evaluate(() => dictOn && !dictAudio && window.__made[window.__made.length - 1].processLocally !== true && document.getElementById('noteText').value.includes('jetzt geht es wieder')), 'next dictation on this phone: plain at once, words at once');
-  await browser2.close();
-  // a phone where the recognition takes the microphone and the recording beside it stays silent
-  // (what happened before on Android: text came, the audio played nothing): no silent audio is kept
-  const wav0 = require('path').join(require('os').tmpdir(), 'journal-silence.wav');
-  { const sr = 16000, n = sr * 30, buf = Buffer.alloc(44 + n * 2);
-    buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVEfmt ', 8); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
-    require('fs').writeFileSync(wav0, buf); }
-  const browser3 = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-audio-capture=' + wav0, '--autoplay-policy=no-user-gesture-required'] });
-  const ctx7 = await browser3.newContext({ viewport: { width: 400, height: 800 } }); await ctx7.grantPermissions(['microphone']);
-  await ctx7.addInitScript(fakeSR, 'Text kommt aber die Aufnahme ist stumm');
+  await p6.click('#recBtn'); await p6.waitForSelector('#recBar:not([hidden])'); await sleep(2500); await p6.click('#recStop');
+  await p6.waitForFunction(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.segs.some(g => g.st === 'fail'); }, null, { timeout: 30000 }).catch(() => {});
+  for (let i = 0; i < 40 && !vendor.some(u => u.endsWith('.wasm')); i++) await sleep(500);      // the runtime starts beside the other model files; a failing one does not stop it
+  console.log('model requests', JSON.stringify([...new Set(hf)]), 'runtime', JSON.stringify([...new Set(vendor)]));
+  check(hf.some(u => u.endsWith('/Xenova/whisper-base/resolve/main/onnx/encoder_model_quantized.onnx')) && hf.some(u => u.endsWith('/onnx/decoder_model_merged_quantized.onnx')) && hf.some(u => u.endsWith('/tokenizer.json')), 'the speech model files are asked for under their real names');
+  check(vendor.some(u => u.endsWith('ort-wasm-simd-threaded.asyncify.wasm')) && vendor.some(u => u.endsWith('ort-wasm-simd-threaded.asyncify.mjs')) && vendor.some(u => u.endsWith('transformers.min.js')), 'the library and its WebAssembly runtime load from the app itself');
+  check(/No text yet/.test(await p6.textContent('#takes .st')), 'a model that cannot run is reported in the recording, nothing breaks');
+  // no connection to Hugging Face: said in plain words
+  const ctx7 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx7.grantPermissions(['microphone']);
+  await ctx7.route(/huggingface\.co|\.hf\.co/, route => route.abort('internetdisconnected'));
   const p7 = await ctx7.newPage(); p7.on('pageerror', e => errors.push('p7 pageerror: ' + e.message));
   await p7.goto(BASE); await p7.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p7.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
-  await p7.click('#noteBtn'); await p7.waitForSelector('#noteText'); await p7.click('#dictBtn');
-  await p7.waitForFunction(() => localStorage.getItem('journal-dict-voice') === 'no', null, { timeout: 15000 }).catch(() => {}); await sleep(800);
-  const f7 = await p7.evaluate(() => ({ mode: localStorage.getItem('journal-dict-voice'), dict: dictOn, voice: !!dictAudio, toast: document.getElementById('toast').textContent }));
-  await p7.click('#dictBtn'); await sleep(1500);
-  const e7 = await p7.evaluate(() => { const e = journalDebug.entries.find(x => !x.deleted); return { segs: e.segs.length, text: e.text, parts: 0 }; });
-  console.log('silent recording', JSON.stringify(f7), JSON.stringify(e7));
-  check(f7.mode === 'no' && f7.dict && !f7.voice && e7.segs === 0 && e7.text.includes('Aufnahme ist stumm') && !(await p7.isVisible('#playBtn')), 'silent recording beside the recognition: noticed, no silent audio kept, the text stays');
-  // silence judged by size when the level cannot be measured
-  const ctx10 = await browser3.newContext({ viewport: { width: 400, height: 800 } }); await ctx10.grantPermissions(['microphone']);
-  await ctx10.addInitScript(() => { window.AudioContext = window.webkitAudioContext = function () { throw new Error('no audio context here'); }; });
-  await ctx10.addInitScript(fakeSR, 'Text kommt, Aufnahme stumm, nicht messbar');
-  const p10 = await ctx10.newPage(); p10.on('pageerror', e => errors.push('p10 pageerror: ' + e.message));
-  await p10.goto(BASE); await p10.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p10.evaluate(() => { journalDebug.settings.engine = 'phone'; saveSettings(); });
-  await p10.click('#noteBtn'); await p10.waitForSelector('#noteText'); await p10.click('#dictBtn'); await sleep(4000); await p10.click('#dictBtn'); await sleep(1500);
-  const f10 = await p10.evaluate(() => ({ mode: localStorage.getItem('journal-dict-voice'), segs: journalDebug.entries.find(x => !x.deleted).segs.length, text: journalDebug.entries.find(x => !x.deleted).text }));
-  console.log('silent by size', JSON.stringify(f10));
-  check(f10.mode === 'no' && f10.segs === 0 && f10.text.includes('nicht messbar'), 'a silent recording is recognised by its size and not kept, the text stays');
-  await browser3.close();
+  await p7.click('#recBtn'); await p7.waitForSelector('#recBar:not([hidden])'); await sleep(2000); await p7.click('#recStop');
+  await p7.waitForFunction(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.segs.some(g => g.st === 'fail'); }, null, { timeout: 30000 }).catch(() => {});
+  const st7 = await p7.textContent('#takes .st');
+  console.log('offline', st7);
+  check(/could not be downloaded; is the phone online\?/.test(st7) && (await p7.isVisible('#takes .tbtn button')), 'offline: the recording says the model could not be downloaded and offers to try again');
+  await browser2.close();
 
   console.log('\nerrors:', errors.length ? errors : 'none');
   if (errors.length) fails++;

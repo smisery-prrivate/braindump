@@ -6,11 +6,10 @@
 let locked = false, softLock = false, unlocking = false, hiddenAt = 0, pinStep = false, hideTimer = null, softTimer = null, storageAtRisk = false;
 const unlockWaiters = [];
 const COVERED = ['home', 'entry', 'sheet'];
-const workInFlight = () => recording || recFinishing || segWrites > 0 || persistQueued > 0 || txBusy || syncing || backupBusy || !!dictAudio || dictAudioBusy > 0;
+const workInFlight = () => recording || recFinishing || segWrites > 0 || persistQueued > 0 || txBusy || syncing || backupBusy;
 
 // ---------- lock screen ----------
 function showLock(soft) {
-  if (dictOn) stopDictation();
   if (selMode) { selMode = false; selIds.clear(); }
   let n = 0; for (let i = stack.length - 1; i > 0 && (stack[i] === 'popup' || stack[i] === 'sheet'); i--) n++;
   if (n) { if (popupState) popupState.after = null; history.go(-n); }
@@ -147,43 +146,32 @@ function renderSheet() {
   renderTxBox(); renderSyncBox(); renderLockBox(); renderBackupBox(); renderInstallBox();
   $('setSeg').value = String(settings.segMin); $('setSeg').addEventListener('change', e => { settings.segMin = +e.target.value; saveSettings(); });
 }
-// on-device recognition: the switch, and what this phone said about German and English
-function srLocalBox() {
-  if (!srLocalOffered()) return '<div class="hint">Recognition on the phone itself is not offered by this browser (needs a recent Chrome).</div>';
-  const name = { 'de-DE': 'German', 'en-US': 'English' }, word = { available: 'on this phone ✓', downloadable: 'can be downloaded', downloading: 'downloading…', unavailable: 'not offered', failed: 'did not work', '': 'not checked yet' };
-  const st = ['de-DE', 'en-US'].map(l => [l, srLocalGet(l)]);
-  return '<div class="rowopt"><span>Recognise on the phone itself</span><select id="setSrLocal"><option value="1">Yes, where offered</option><option value="0">No</option></select></div>' +
-    (settings.srLocal ? '<div class="hint">No internet, no tones. ' + st.map(([l, s]) => name[l] + ': ' + (word[s] || s)).join(' · ') + '. ' +
-      (st.some(([, s]) => s === 'downloadable') ? '<button class="linkbtn" id="srLocalGet">Download</button> ' : '') +
-      (st.some(([, s]) => s === 'failed' || s === 'unavailable') ? '<button class="linkbtn" id="srLocalRetry">Check again</button>' : '') + '</div>' : '');
-}
 function renderTxBox() {
   const box = $('txBox'); if (!box) return;
   const eng = settings.engine;
   let engBox = '';
-  if (eng === 'phone') engBox = '<div class="hint">The microphone records your voice (kept encrypted, playable). Text for it comes live only where the phone can listen while it records; for text online, like in the Claude app, choose "Own key". Inside an entry, Dictate writes with the phone\'s own recognition (free, no recording; on Android it stops at pauses).</div>';
-  else if (eng === 'keyboard') engBox = '<div class="hint">The microphone opens the text window with the keyboard up; tap the keyboard\'s own microphone key and talk. Gboard\'s voice typing runs on the phone itself on newer phones, keeps going through pauses and has no start and stop tones. Free. No audio file is kept.</div>';
-  else if (eng === 'claude') engBox = '<div class="hint">The microphone opens a new chat in the Claude app, where you dictate. Paste the result into an entry with the pen. A workaround until a key is set.</div>';
-  else if (eng === 'key') engBox = stt ? '<div class="statecard"><div class="t">✓ ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Memos and dictated notes go straight from this phone to the service and the text comes back. The service may keep audio for a while under its own terms.</div></div><button class="btn quiet" id="sttOff">Remove the key</button>'
+  if (eng === 'whisper') engBox = whisperOk()
+    ? '<div class="hint">Your recordings are written as text on this phone. Nothing leaves it. The first time, the speech model is downloaded once and kept; after that it works offline. The text takes about as long as the recording, longer on older phones.</div>' +
+      '<div class="rowopt"><span>Speech model</span><select id="setWModel">' + Object.keys(WHISPER_MODELS).map(k => '<option value="' + k + '">' + esc(WHISPER_MODELS[k].label) + '</option>').join('') + '</select></div>' +
+      '<div class="hint" id="wState"></div><button class="btn" id="wFetch">Download the speech model now</button>'
+    : '<div class="hint">This browser cannot run the speech model. Use a recent Chrome, or choose "Own key".</div>';
+  else if (eng === 'keyboard') engBox = '<div class="hint">The microphone opens the text window with the keyboard up; tap the keyboard\'s own microphone key and talk. No recording is kept.</div>';
+  else if (eng === 'claude') engBox = '<div class="hint">The microphone opens a new chat in the Claude app, where you talk. Paste the result into an entry with the pen. No recording is kept.</div>';
+  else if (eng === 'key') engBox = stt ? '<div class="statecard"><div class="t">✓ ' + esc(STT[stt.provider].name) + '</div><div class="s">The key is stored encrypted on this device. Recordings go straight from this phone to the service and the text comes back. The service may keep audio for a while under its own terms.</div></div><button class="btn quiet" id="sttOff">Remove the key</button>'
     : '<p>Mistral (Paris) transcribes German and English for a few cents per hour: sign up at console.mistral.ai, choose the pay-as-you-go plan, API Keys, Create. (Mistral\'s free Experiment plan lets them train on your audio, so take the paid one for a journal.) The key is stored encrypted on this device and used only from here.</p>' +
       '<select id="sttProv">' + Object.keys(STT).map(k => '<option value="' + k + '">' + esc(STT[k].name) + '</option>').join('') + '</select>' +
       '<input id="sttKey" type="password" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore placeholder="API key"><button class="btn primary" id="sttSave">Use this key</button>';
-  else engBox = SYNC ? '<div class="hint">' + (session ? 'Signed in: memos and dictated notes go to the transcription function in your own cloud project; no key is kept on the phone.' : 'Sign in under Cloud below. The transcription function in your own cloud project holds the key; nothing is kept on the phone.') + '</div>' : '<div class="hint">The cloud is not switched on in this version.</div>';
-  box.innerHTML = '<div class="rowopt"><span>Engine</span><select id="setEngine"><option value="phone">Phone\'s speech recognition</option><option value="keyboard">Keyboard microphone (Gboard)</option><option value="claude">Claude app (dictate there)</option><option value="key">Own key (Mistral, …)</option><option value="cloud">Own cloud function</option></select></div>' + engBox +
-    (eng === 'key' || eng === 'cloud' ? '<div class="rowopt"><span>Recordings</span><select id="setTx"><option value="auto">Text automatically</option><option value="ask">Ask after each one</option><option value="off">Audio only</option></select></div>' : '') +
-    '<div class="rowopt"><span>Spoken language</span><select id="setLang"><option value="auto">German and English (detect)</option><option value="de">German</option><option value="en">English</option></select></div>' +
-    (eng === 'phone' ? srLocalBox() + '<div class="rowopt"><span>Keep the voice when dictating</span><select id="setDictVoice"><option value="1">Yes, playable</option><option value="0">No, text only</option></select></div>' +
-      (settings.dictVoice && dictVoiceMode() === 'no' ? '<div class="hint">This phone could not record and write at the same time, so dictation writes text only. <button class="linkbtn" id="dictVoiceRetry">Try again</button></div>' : '') +
-      '<div class="hint">The phone\'s recognition listens in one language at a time; "detect" uses the phone\'s language.</div>' : eng === 'keyboard' ? '<div class="hint">The keyboard\'s voice typing uses its own language setting; Gboard can hold several languages at once.</div>' : '') +
+  else engBox = SYNC ? '<div class="hint">' + (session ? 'Signed in: recordings go to the transcription function in your own cloud project; no key is kept on the phone.' : 'Sign in under Cloud below. The transcription function in your own cloud project holds the key; nothing is kept on the phone.') + '</div>' : '<div class="hint">The cloud is not switched on in this version.</div>';
+  box.innerHTML = '<div class="rowopt"><span>Text from recordings</span><select id="setEngine"><option value="whisper">On this phone (Whisper)</option><option value="key">Online with own key (Mistral, …)</option><option value="cloud">Own cloud function</option><option value="claude">No recording: Claude app</option><option value="keyboard">No recording: keyboard microphone</option></select></div>' + engBox +
+    (eng === 'whisper' || eng === 'key' || eng === 'cloud' ? '<div class="rowopt"><span>Recordings</span><select id="setTx"><option value="auto">Text automatically</option><option value="ask">Ask after each one</option><option value="off">Audio only</option></select></div>' +
+      '<div class="rowopt"><span>Spoken language</span><select id="setLang"><option value="auto">German and English (detect)</option><option value="de">German</option><option value="en">English</option></select></div>' : '') +
     '<div class="hint" id="sttHint"></div>';
-  $('setEngine').value = eng; $('setEngine').addEventListener('change', e => { settings.engine = e.target.value; saveSettings(); abortTranscribe(); renderTxBox(); renderSyncLine(); scheduleTranscribe(); });
+  $('setEngine').value = eng; $('setEngine').addEventListener('change', e => { settings.engine = e.target.value; saveSettings(); abortTranscribe(); renderTxBox(); renderSyncLine(); scheduleTranscribe(); if (curEntry) renderEntry(); });
   if ($('setTx')) { $('setTx').value = settings.transcribe; $('setTx').addEventListener('change', e => { settings.transcribe = e.target.value; saveSettings(); if (settings.transcribe === 'auto') { for (const en of live()) if (en.state === 'done' && en.segs.some(g => g.st === 'todo')) en.tx = true; scheduleTranscribe(); } }); }
-  if ($('setSrLocal')) { $('setSrLocal').value = settings.srLocal ? '1' : '0'; $('setSrLocal').addEventListener('change', ev => { settings.srLocal = ev.target.value === '1'; saveSettings(); renderTxBox(); }); }
-  if ($('srLocalGet')) $('srLocalGet').addEventListener('click', () => srLocalInstall(['de-DE', 'en-US'].filter(l => ['downloadable', ''].includes(srLocalGet(l))), false));
-  if ($('srLocalRetry')) $('srLocalRetry').addEventListener('click', () => { for (const l of ['de-DE', 'en-US']) { srLocalNote(l, ''); srLocalNote('ok|' + l, ''); } renderTxBox(); toast('The next dictation checks again.'); });
-  if ($('setDictVoice')) { $('setDictVoice').value = settings.dictVoice ? '1' : '0'; $('setDictVoice').addEventListener('change', ev => { settings.dictVoice = ev.target.value === '1'; saveSettings(); renderTxBox(); }); }
-  if ($('dictVoiceRetry')) $('dictVoiceRetry').addEventListener('click', () => { setDictVoiceMode(''); renderTxBox(); toast('The next dictation tries again.'); });
-  $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); });
+  if ($('setLang')) { $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); }); }
+  if ($('setWModel')) { $('setWModel').value = settings.whisperModel; $('setWModel').addEventListener('change', ev => { settings.whisperModel = ev.target.value; saveSettings(); abortTranscribe(); whisperStop('model changed'); renderWhisperState(); scheduleTranscribe(); }); }
+  if ($('wFetch')) $('wFetch').addEventListener('click', () => { whisperPrefetch(); renderWhisperState(); });
+  renderWhisperState();
   if ($('sttSave')) $('sttSave').addEventListener('click', async () => {
     const key = $('sttKey').value.trim(), provider = $('sttProv').value, hint = $('sttHint');
     if (key.length < 16) { hint.textContent = 'That does not look like an API key.'; return; }
@@ -191,6 +179,13 @@ function renderTxBox() {
   });
   if ($('sttOff')) $('sttOff').addEventListener('click', () => popup('Remove the key?', 'Transcription with it stops until a key is entered again.', [
     { label: 'Remove', cls: 'danger', fn: async () => { abortTranscribe(); await saveStt(null); renderTxBox(); renderSyncLine(); } }, { label: 'Keep it', cls: 'quiet' }]));
+}
+// where the speech model stands on this phone
+function renderWhisperState() {
+  const el = $('wState'), btn = $('wFetch'); if (!el) return;
+  const busy = whisperStatus();
+  el.textContent = busy || (whisperReady() ? '✓ The speech model is on this phone.' : 'The speech model is not downloaded yet; it comes with the first recording, or now.');
+  if (btn) btn.hidden = !!busy || whisperReady();
 }
 const LOCK_TEXT = {
   prf: ['🔒 Locked with fingerprint / screen lock', 'The key to your journal is released only by this phone\'s screen lock.'],
