@@ -227,6 +227,8 @@ See `README.md`.
 
 ## History
 
+- v28 (2026-11-09): one + button on the home screen opens a new, quiet entry; nothing records
+  by itself. Inside, Record or write.
 - v27 (2026-11-08): "Downloading" was shown every time the model started, from the cache too
   (the library says "download" either way): the cache is checked first and starting from it is
   said so. A recording in which Whisper hears no words says so (with what Whisper gave) and offers

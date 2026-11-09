@@ -55,7 +55,7 @@ function renderHome() {
   $('searchInfo').hidden = !q; $('searchInfo').textContent = q ? (shown.length ? shown.length + ' entr' + (shown.length > 1 ? 'ies' : 'y') + ' found, in all folders' : '') : '';
   $('searchExport').hidden = !q || !shown.length;
   if (!shown.length) {
-    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches “' + esc(searchQ.trim()) + '”.' : curFolder ? 'Nothing in this folder yet. New entries you make now land here.' : '<b>Your journal is empty.</b>Tap the microphone and talk; the words appear as you go. The pen writes. Everything is stored encrypted on this phone.') + '</div>';
+    list.innerHTML = '<div class="empty">' + (q ? 'Nothing matches “' + esc(searchQ.trim()) + '”.' : curFolder ? 'Nothing in this folder yet. New entries you make now land here.' : '<b>Your journal is empty.</b>Tap + for a new entry, then Record or write. Everything is stored encrypted on this phone.') + '</div>';
     renderSelDock(); return;
   }
   let html = '', day = '';
@@ -191,7 +191,7 @@ $('searchBox').addEventListener('input', ev => { searchQ = ev.target.value; rend
 $('searchExport').addEventListener('click', () => { if (searchHits && searchHits.length) exportTextAsk(searchHits, 'journal-search-' + fold(searchQ.trim()).replace(/[^a-z0-9]+/g, '-').slice(0, 30)); });
 $('menuBtn').addEventListener('click', () => openSheet());
 
-// ---------- a new entry: write (pen) or record (microphone) ----------
+// ---------- a new entry: the + opens it empty; inside, Record or write ----------
 async function newEntry(opts) {
   if (locked || passive || !Vault.isOpen() || recording) return;
   const e = { id: uid(), created: Date.now(), updated_at: Date.now(), title: '', text: '', transcript: '', tEdited: false, lang: settings.lang, segs: [], pics: [], state: 'done', dur: 0, deleted: false, tx: false, mime: '', merged: true, folder: curFolder || '' };
@@ -203,18 +203,10 @@ async function newEntry(opts) {
     renderHome(); return;
   }
   if (!(await persist(e))) { entries.splice(entries.indexOf(e), 1); return; }
-  openEntry(e, { focusText: true });
+  openEntry(e);                                           // nothing starts by itself: Record or write, as you like
   renderHome();
 }
 $('noteBtn').addEventListener('click', () => newEntry());
-// The microphone records your voice into a new entry: kept encrypted, playable, and its text is
-// written afterwards from the recording (on this phone with Whisper, or online with a key).
-// Inside an entry, Record adds another recording below the ones there.
-$('recBtn').addEventListener('click', () => {
-  if (settings.engine === 'claude') { openClaude(''); return; }
-  if (settings.engine === 'keyboard') { newEntry({ keyboard: true }); return; }
-  startRecording();
-});
 
 // ---------- entry view ----------
 let titleTimer = null, textTimer = null, focusTextNext = false;
@@ -279,7 +271,7 @@ function renderEntry() {
   if (nt && document.activeElement === nt && nt.dataset.id === e.id) { commitText(); renderTakes(); renderRecordBtn(); return; }      // never redraw under a moving cursor; the recordings above and new text may change
   commitText();                                                                                         // nothing typed is lost to a redraw
   body.innerHTML = '<div id="takes"></div>' +
-    '<div class="txcard"><div class="t"><span class="tlabel">Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="recHere" title="Record">🎙 Record</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write, or tap Record…">' + esc(e.text || '') + '</textarea></div>' +
+    '<div class="txcard"><div class="t"><span class="tlabel">Text</span><span class="tbtns"><button id="claudeBtn" title="Open this entry in Claude">Claude</button><button id="recHere" title="Record">🎙 Record</button></span></div><textarea id="noteText" data-id="' + esc(e.id) + '" placeholder="Write here, or tap Record…">' + esc(e.text || '') + '</textarea></div>' +
     '<div class="txcard"><div class="t"><span>Photos</span></div><div class="pics" id="picGrid"></div></div>';
   $('noteText').dataset.base = e.text || '';
   renderTakes(); renderPics(); renderRecordBtn();
@@ -287,8 +279,10 @@ function renderEntry() {
   renderRecBar();
   $('noteText').addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(commitText, 500); });
   $('noteText').addEventListener('blur', commitText);
+  // Record: the voice into this entry (its text follows); with the Claude or keyboard engine, that way instead
   $('recHere').addEventListener('click', () => {
     if (recording) { if (recEntry === e) stopRecording(); return; }
+    if (settings.engine === 'claude') { openClaude(''); return; }
     if (settings.engine === 'keyboard') { $('noteText').focus(); keyboardHint(); return; }
     startRecording(e);
   });
@@ -298,8 +292,8 @@ function renderEntry() {
 function renderRecordBtn() {
   const b = $('recHere'), e = curEntry; if (!b || !e) return;
   const here = recording && recEntry === e;
-  b.textContent = here ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : '🎙 Record';
-  b.disabled = recording && !here; b.classList.toggle('rec', here);
+  b.textContent = here ? '■ Stop' : settings.engine === 'keyboard' ? '⌨ Dictate' : settings.engine === 'claude' ? '🎙 In Claude' : '🎙 Record';
+  b.disabled = recording && !here; b.classList.toggle('rec', here); b.classList.toggle('big', !here && !(e.segs && e.segs.length) && !(e.text || '').trim());      // an empty entry: Record stands out
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) return; commitTitle(); commitText(); });
 // Open the Claude app (or claude.ai) on a new chat, with text as the first message when given.

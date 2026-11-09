@@ -21,7 +21,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   // 1. boot
   await page.goto(BASE); await page.waitForFunction(() => window.journalDebug && document.getElementById('list').textContent.length > 0);
   check(await page.textContent('#list') .then(t => t.includes('empty')), 'empty state shown');
-  check(await page.isVisible('#recBtn'), 'record button visible');
+  check(await page.isVisible('#noteBtn') && !(await page.$('#recBtn')), 'one + button for a new entry, no microphone that records at once');
 
   // 2. record a short memo with segments every ~3 s (engine "own key" for the stored-audio paths below)
   await page.evaluate(() => { journalDebug.settings.segMin = 0.05; journalDebug.settings.engine = 'key'; journalDebug.settings.transcribe = 'ask'; });
@@ -84,15 +84,18 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   // 2c2. the microphone records the voice inside the entry; the bar says how its text comes
   const before = await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length);
   await page.evaluate(() => { journalDebug.settings.engine = 'whisper'; });
-  await page.click('#recBtn'); await page.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
+  await page.click('#noteBtn'); await page.waitForSelector('#recHere'); await page.click('#recHere'); await page.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
   check(await page.evaluate(() => journalDebug.recording && !document.getElementById('entry').hidden && document.getElementById('recLive').textContent.includes('written on this phone')), 'Whisper: the microphone records inside the entry, the text follows on this phone');
-  await page.click('#recDiscard'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await page.waitForSelector('#home:not([hidden])', { timeout: 15000 }); await sleep(500);
-  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before, 'a discarded recording leaves nothing');
+  await page.click('#recDiscard'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await page.waitForFunction(() => !journalDebug.recording && !document.querySelector('#popup.open'), null, { timeout: 15000 }); await sleep(500);
+  check(await page.isVisible('#entry:not([hidden])') && (await page.$$('#takes .player')).length === 0, 'a discarded recording leaves the entry open and empty');
+  await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
+  check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before, 'leaving the empty entry drops it');
   // with a key the tap records in the background of the text window
   await page.evaluate(() => { journalDebug.settings.engine = 'key'; });
-  await page.click('#recBtn'); await page.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
+  await page.click('#noteBtn'); await page.waitForSelector('#recHere'); await page.click('#recHere'); await page.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
   check(await page.evaluate(() => journalDebug.recording && !document.getElementById('entry').hidden), 'with a key the tap records inside the entry');
-  await page.click('#recDiscard'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await page.waitForSelector('#home:not([hidden])', { timeout: 15000 }); await sleep(500);
+  await page.click('#recDiscard'); await page.waitForSelector('#popup.open'); await page.click('#popupBox button.danger'); await page.waitForFunction(() => !journalDebug.recording && !document.querySelector('#popup.open'), null, { timeout: 15000 }); await sleep(500);
+  await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
   check(await page.evaluate(() => journalDebug.entries.filter(x => !x.deleted).length) === before && !(await page.evaluate(() => journalDebug.recording)), 'discard drops the recording');
 
   // 2d. with an engine that gives recordings no text (Claude app), a recording says so and offers Whisper
@@ -130,8 +133,10 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
 
   // 2e2. keyboard engine: the microphone opens the text window with the text field focused
   await page.evaluate(() => { journalDebug.settings.engine = 'keyboard'; saveSettings(); });
-  await page.click('#recBtn'); await page.waitForSelector('#noteText'); await sleep(300);
-  check(await page.evaluate(() => document.activeElement && document.activeElement.id === 'noteText' && document.activeElement.placeholder.includes('keyboard')), 'keyboard engine: text window open, field focused, hint shown');
+  await page.click('#noteBtn'); await page.waitForSelector('#noteText'); await sleep(300);
+  check(await page.evaluate(() => document.activeElement !== document.getElementById('noteText') && !journalDebug.recording && document.getElementById('recHere').textContent.includes('Dictate')), 'a new entry opens quiet: nothing records, nothing is focused');
+  await page.click('#recHere'); await sleep(300);
+  check(await page.evaluate(() => document.activeElement && document.activeElement.id === 'noteText' && document.activeElement.placeholder.includes('keyboard')), 'keyboard engine: Dictate focuses the field with the hint');
   await page.fill('#noteText', 'Per Tastatur diktiert'); await sleep(1000); await page.click('#entryBack'); await page.waitForSelector('#home:not([hidden])'); await sleep(300);
   check(await page.evaluate(() => journalDebug.entries.some(x => !x.deleted && x.text === 'Per Tastatur diktiert')), 'keyboard engine: entry kept with its text');
   await page.evaluate(async () => { const e = journalDebug.entries.find(x => x.text === 'Per Tastatur diktiert'); e.deleted = true; e.del_at = Date.now(); await journalDebug.persist(e); journalDebug.settings.engine = 'cloud'; saveSettings(); }); await sleep(300);
@@ -348,7 +353,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   const p5 = await ctx5.newPage(); p5.on('pageerror', e => errors.push('p5 pageerror: ' + e.message));
   await p5.goto(BASE); await p5.waitForFunction(() => window.journalDebug && journalDebug.entries);
   check(await p5.evaluate(() => journalDebug.settings.engine === 'whisper' && !('dictVoice' in journalDebug.settings)), 'the old dictation setting becomes Whisper');
-  await p5.click('#recBtn'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(3000);
+  await p5.click('#noteBtn'); await p5.waitForSelector('#recHere'); await p5.click('#recHere'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(3000);
   check((await p5.textContent('#recLive')).includes('written on this phone') && await p5.evaluate(() => window.__wruns.length === 0), 'while recording: the bar says the text follows, Whisper waits');
   await p5.click('#recStop');
   await p5.waitForFunction(() => /Downloading the speech model/.test((document.querySelector('#takes .st') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
@@ -401,7 +406,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   // after a restart the model starts from the cache: no "Downloading"
   const p5b = await ctx5.newPage(); p5b.on('pageerror', e => errors.push('p5b pageerror: ' + e.message));
   await p5.close(); await p5b.goto(BASE); await p5b.waitForFunction(() => window.journalDebug && journalDebug.entries && !journalDebug.locked);
-  await p5b.click('#recBtn'); await p5b.waitForSelector('#recBar:not([hidden])'); await sleep(1500); await p5b.click('#recStop');
+  await p5b.click('#noteBtn'); await p5b.waitForSelector('#recHere'); await p5b.click('#recHere'); await p5b.waitForSelector('#recBar:not([hidden])'); await sleep(1500); await p5b.click('#recStop');
   await p5b.waitForFunction(() => /speech model/.test((document.querySelector('#takes .st') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
   const startMsg = await p5b.evaluate(() => (document.querySelector('#takes .st') || {}).textContent || '');
   check(/Starting the speech model on this phone \(it is downloaded already\)/.test(startMsg) && !/Downloading/.test(startMsg), 'after a restart the model starts from the cache, not "Downloading" (' + startMsg + ')');
@@ -428,7 +433,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   ctx6.on('request', r => { if (/\/vendor\//.test(r.url())) vendor.push(r.url().replace(/^http:\/\/[^/]+/, '')); });
   const p6 = await ctx6.newPage(); p6.on('pageerror', e => errors.push('p6 pageerror: ' + e.message));
   await p6.goto(BASE); await p6.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p6.click('#recBtn'); await p6.waitForSelector('#recBar:not([hidden])'); await sleep(2500); await p6.click('#recStop');
+  await p6.click('#noteBtn'); await p6.waitForSelector('#recHere'); await p6.click('#recHere'); await p6.waitForSelector('#recBar:not([hidden])'); await sleep(2500); await p6.click('#recStop');
   await p6.waitForFunction(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.segs.some(g => g.st === 'fail'); }, null, { timeout: 30000 }).catch(() => {});
   for (let i = 0; i < 40 && !vendor.some(u => u.endsWith('.wasm')); i++) await sleep(500);      // the runtime starts beside the other model files; a failing one does not stop it
   console.log('model requests', JSON.stringify([...new Set(hf)]), 'runtime', JSON.stringify([...new Set(vendor)]));
@@ -440,7 +445,7 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   await ctx7.route(/huggingface\.co|\.hf\.co/, route => route.abort('internetdisconnected'));
   const p7 = await ctx7.newPage(); p7.on('pageerror', e => errors.push('p7 pageerror: ' + e.message));
   await p7.goto(BASE); await p7.waitForFunction(() => window.journalDebug && journalDebug.entries);
-  await p7.click('#recBtn'); await p7.waitForSelector('#recBar:not([hidden])'); await sleep(2000); await p7.click('#recStop');
+  await p7.click('#noteBtn'); await p7.waitForSelector('#recHere'); await p7.click('#recHere'); await p7.waitForSelector('#recBar:not([hidden])'); await sleep(2000); await p7.click('#recStop');
   await p7.waitForFunction(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.segs.some(g => g.st === 'fail'); }, null, { timeout: 30000 }).catch(() => {});
   const st7 = await p7.textContent('#takes .st');
   console.log('offline', st7);

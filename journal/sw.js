@@ -3,7 +3,7 @@
 // install time and served only from this set, so the page never runs a mix of two versions and
 // starts at once without waiting for the network. A new release arrives as a new worker that
 // WAITS; the page asks for the switch at a quiet moment right before it restarts.
-const CACHE = 'journal-v27';
+const CACHE = 'journal-v28';
 const ASSETS = ['.', 'index.html', 'vault.js', 'app-core.js', 'app-journal.js', 'app-rec.js', 'app-whisper.js', 'whisper-worker.js', 'vendor/transformers-4.3.2/transformers.min.js', 'vendor/transformers-4.3.2/ort-wasm-simd-threaded.asyncify.mjs', 'app-lock.js', 'app-sync.js', 'app-backup.js', 'app-boot.js', 'config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
