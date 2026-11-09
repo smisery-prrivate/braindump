@@ -184,7 +184,9 @@ function renderTxBox() {
 function renderWhisperState() {
   const el = $('wState'), btn = $('wFetch'); if (!el) return;
   const busy = whisperStatus();
-  el.textContent = busy || (whisperReady() ? '✓ The speech model is on this phone.' : 'The speech model is not downloaded yet; it comes with the first recording, or now.');
+  const cores = whisperCores();
+  el.textContent = (busy || (whisperReady() ? '✓ The speech model is on this phone.' : 'The speech model is not downloaded yet; it comes with the first recording, or now.')) +
+    ' ' + (cores > 1 ? 'It uses ' + cores + ' processor cores.' : 'It uses 1 processor core' + ('serviceWorker' in navigator && navigator.serviceWorker.controller ? '.' : '; after the next start of the app it gets more.'));
   if (btn) btn.hidden = !!busy || whisperReady();
 }
 const LOCK_TEXT = {

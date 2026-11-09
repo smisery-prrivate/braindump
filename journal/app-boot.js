@@ -110,6 +110,7 @@ const hadController = 'serviceWorker' in navigator && !!navigator.serviceWorker.
 if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', () => {
   if (swSwitching) return;
   if (hadController) { swTookOver = true; updateReady = true; afterNav(); }
+  else if (!self.crossOriginIsolated) { swTookOver = true; updateReady = true; afterNav(); }      // first visit: a reload under the worker gives the speech model all cores
 });
 function noteWaiting(r) { if (r && r.waiting && navigator.serviceWorker.controller) { updateReady = true; afterNav(); } }
 function registerSW() {

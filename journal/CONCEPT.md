@@ -30,7 +30,10 @@ with the same security bar as Snapdoc or higher. Working name "Journal", visible
   never leaves the phone. The library (Transformers.js) and its WebAssembly runtime (ONNX
   Runtime) are part of the app (`vendor/`, versions and hashes in its README), so no script comes
   from another server; only the model's weights (data) are downloaded once from Hugging Face and
-  kept in the browser's cache. Fast model about 80 MB, better German about 250 MB. Transformers.js
+  kept in the browser's cache. Fast model about 80 MB, better German about 250 MB. The model runs
+  on up to four processor cores: the service worker adds the cross-origin isolation headers to
+  every response it serves (GitHub Pages cannot set them), which unlocks SharedArrayBuffer;
+  "credentialless" keeps the cross-origin fetches (the weights, the cloud) working. Transformers.js
   does not detect the language, so Whisper is asked once per part, on its first 30 seconds,
   whether it hears German or English. Stock phrases Whisper invents over silence (subtitle
   credits) are dropped. Whisper starts when the recording stops, never while it records.
@@ -227,6 +230,9 @@ See `README.md`.
 
 ## History
 
+- v29 (2026-11-09): the speech model uses several processor cores: the service worker adds the
+  cross-origin isolation headers GitHub Pages cannot set (COOP same-origin, COEP credentialless),
+  the first visit reloads once under the worker; the menu says how many cores it uses.
 - v28 (2026-11-09): one + button on the home screen opens a new, quiet entry; nothing records
   by itself. Inside, Record or write.
 - v27 (2026-11-08): "Downloading" was shown every time the model started, from the cache too

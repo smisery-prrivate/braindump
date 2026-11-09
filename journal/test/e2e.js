@@ -418,6 +418,22 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   check(await p5c.evaluate(() => document.getElementById('setEngine').value === 'whisper' && document.getElementById('wState').textContent.includes('on this phone') && document.getElementById('wFetch').hidden), 'menu: Whisper chosen, the speech model is on this phone');
   await p5c.evaluate(() => back());
 
+  // 10b. with the service worker in charge, the page is cross-origin isolated (the speech model gets
+  // all cores); a CORS fetch to another origin (the model's weights) still works under it
+  const ctxI = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctxI.grantPermissions(['microphone']);
+  await ctxI.addInitScript(() => { try { localStorage.setItem('journal.sw', '1'); } catch (e) {} });
+  await ctxI.route(/huggingface\.co/, route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"ok":true}' }));
+  const pI = await ctxI.newPage(); pI.on('pageerror', e => errors.push('pI pageerror: ' + e.message));
+  await pI.goto(BASE); await pI.waitForFunction(() => window.journalDebug && journalDebug.entries);
+  await pI.waitForFunction(() => navigator.serviceWorker && navigator.serviceWorker.controller, null, { timeout: 15000 }).catch(() => {});
+  const iso0 = await pI.evaluate(() => self.crossOriginIsolated);
+  await pI.waitForFunction(() => self.crossOriginIsolated, null, { timeout: 15000 }).catch(() => {});      // the app reloads itself once at a quiet moment
+  if (!(await pI.evaluate(() => self.crossOriginIsolated))) { await pI.reload(); await pI.waitForFunction(() => window.journalDebug && journalDebug.entries); }
+  const iso = await pI.evaluate(async () => ({ iso: self.crossOriginIsolated, sab: typeof SharedArrayBuffer === 'function', cores: whisperCores(), hf: await fetch('https://huggingface.co/x/config.json').then(r => r.ok).catch(() => false), menu: (document.getElementById('menuBtn') && (openSheet(), document.getElementById('wState').textContent)) }));
+  console.log('isolation', JSON.stringify({ before: iso0, ...iso }));
+  check(iso.iso && iso.sab && iso.cores >= 1 && iso.hf && /processor core/.test(iso.menu), 'under the service worker the page is isolated, cores known in the menu, the model\'s weights still fetchable');
+  await pI.evaluate(() => back());
+
   // 11. the real library and runtime against a stand-in for Hugging Face: the right model files are
   // asked for, the runtime (WebAssembly) loads from the app's own folder and the page's rules allow it
   const ctx6 = await browser2.newContext({ viewport: { width: 400, height: 800 } }); await ctx6.grantPermissions(['microphone']);
