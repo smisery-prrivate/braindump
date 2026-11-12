@@ -704,7 +704,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v50</div>
+        <div class="version">v51</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -867,7 +867,8 @@
   const NAME_KEY = 'braindump.myName';
   const myName = () => localStorage.getItem(NAME_KEY) || (session && session.email ? session.email.split('@')[0] : '');
   const catLabel = c => c.name + (isShared(c) ? ' · shared' : '');
-  // ---------- repeating thoughts (v50): it.repeat = 'd' daily or 'w0'..'w6' weekly (0 = Sunday) ----------
+  // ---------- repeating thoughts (v50): it.repeat = 'd' daily or 'w' + weekday digits (0 = Sunday) ----------
+  // v51: several weekdays at once, e.g. 'w135' = Mon, Wed, Fri ('w3' from v50 still means one day)
   // A repeating thought is ONE item. When its period starts it comes back into the archive (even if
   // it was ticked off), never into the five or the overflow, and it never fades into the vault.
   // it.cycle = start of the period it last came back for, so it comes back once per period only.
@@ -875,10 +876,26 @@
   function repeatDue(r, now) {
     const d = new Date(now || Date.now());
     d.setHours(0, 0, 0, 0);
-    if (r && r[0] === 'w') d.setDate(d.getDate() - ((d.getDay() - (+r.slice(1)) + 7) % 7));
+    if (r && r[0] === 'w' && r.length > 1) {
+      // back to the most recent day (today included) that is one of the chosen weekdays
+      for (let k = 0; k < 7 && !r.includes(String(d.getDay())); k++) d.setDate(d.getDate() - 1);
+    }
     return d.getTime();
   }
-  const repeatLabel = r => r === 'd' ? 'daily' : (r && r[0] === 'w' ? 'every ' + WEEKDAYS[+r.slice(1)] : '');
+  const repeatDays = r => r && r[0] === 'w' ? r.slice(1).split('').map(Number) : [];
+  // days from a set, Monday first; all seven = daily, none = off
+  const repeatFromDays = days => {
+    const set = [...new Set(days)].filter(k => k >= 0 && k <= 6).sort();
+    return set.length === 7 ? 'd' : set.length ? 'w' + set.join('') : null;
+  };
+  function repeatLabel(r) {
+    if (r === 'd') return 'daily';
+    const ds = repeatDays(r).sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
+    if (!ds.length) return '';
+    if (ds.join('') === '12345') return 'Mon to Fri';
+    if (ds.join('') === '60') return 'weekends';
+    return 'every ' + ds.map(k => WEEKDAYS[k]).join(', ');
+  }
   function setRepeat(it, r) {
     if (r) { it.repeat = r; it.cycle = repeatDue(r); it.vault = false; }
     else { delete it.repeat; delete it.cycle; }
@@ -1625,7 +1642,7 @@
       $('modal').hidden = true;
       save(); rerender();
     });
-    // opts.repeatFor: Off · Daily · one weekday; a tap sets it and closes the dialog
+    // opts.repeatFor: Off and Daily set it and close the dialog; weekdays toggle (several allowed), dialog stays open
     const mr = $('modalRepeat');
     mr.hidden = !opts.repeatFor;
     mr.innerHTML = '';
@@ -1634,14 +1651,27 @@
       const lab = document.createElement('span'); lab.className = 'rl'; lab.textContent = '🔁 Repeat';
       mr.appendChild(lab);
       const choices = [[null, 'Off'], ['d', 'Daily']].concat([1, 2, 3, 4, 5, 6, 0].map(k => ['w' + k, WEEKDAYS[k]]));
+      const paint = () => mr.querySelectorAll('.rchip').forEach(b => {
+        const r = b.dataset.repeat, cur = it.repeat || '';
+        b.classList.toggle('on', r[0] === 'w' ? repeatDays(cur).includes(+r.slice(1)) : r === cur);
+      });
       for (const [r, name] of choices) {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'cchip rchip' + ((it.repeat || null) === r ? ' on' : '');
+        b.className = 'cchip rchip';
         b.textContent = name;
         b.dataset.repeat = r || '';
         b.addEventListener('click', e => {
           e.preventDefault(); e.stopPropagation();
+          if (r && r[0] === 'w') {
+            const k = +r.slice(1);
+            const days = it.repeat === 'd' ? [] : repeatDays(it.repeat);
+            const next = repeatFromDays(days.includes(k) ? days.filter(x => x !== k) : days.concat(k));
+            if (next !== (it.repeat || null)) setRepeat(it, next);
+            save(); rerender(); paint();
+            flash(next ? 'Repeats ' + repeatLabel(next) + '. It comes back into the archive.' : 'Repeat off.');
+            return;
+          }
           setRepeat(it, r);
           $('modal').hidden = true;
           save(); rerender();
@@ -1649,6 +1679,7 @@
         });
         mr.appendChild(b);
       }
+      paint();
     }
     const alts = opts.alts || (opts.alt ? [opts.alt] : []);
     [alt, $('modalAlt2')].forEach((btn, i) => {
@@ -1783,7 +1814,7 @@
             priority: it.priority === 'dark' || it.priority === 'light' ? it.priority : null,
             guest: +it.guest || null, guestUsed: !!it.guestUsed, compass: !!it.compass,
             deleted: !!it.deleted, vault: !!it.vault,
-            repeat: /^(d|w[0-6])$/.test(it.repeat || '') ? it.repeat : undefined, cycle: +it.cycle || undefined,
+            repeat: /^(d|w[0-6]{1,7})$/.test(it.repeat || '') ? it.repeat : undefined, cycle: +it.cycle || undefined,
             why: typeof it.why === 'string' ? it.why : undefined });
           n++;
         }
