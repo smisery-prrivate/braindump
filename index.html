@@ -705,7 +705,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v52</div>
+        <div class="version">v53</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1753,6 +1753,21 @@
       if (onOk) onOk({ reason: inp.value.trim() || null, picked });
     };
     $('modalCancel').onclick = () => { $('modal').hidden = true; };
+  }
+  // tap beside the card or Esc closes it like Cancel (choices already made stay saved);
+  // not while something is typed into the field, so a stray tap never loses a why
+  {
+    const m = $('modal');
+    let downOnBackdrop = false;
+    const typed = () => !$('modalInput').hidden && $('modalInput').value.trim() !== '';
+    m.addEventListener('pointerdown', e => { downOnBackdrop = e.target === m; });
+    m.addEventListener('click', e => {
+      if (e.target === m && downOnBackdrop && !typed()) m.hidden = true;
+      downOnBackdrop = false;
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !m.hidden && !typed()) m.hidden = true;
+    });
   }
 
   function commit() { save(); renderArchive(); }
