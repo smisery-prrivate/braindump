@@ -103,6 +103,7 @@
   #modalRepeat[hidden] { display: none; }
   #modalRepeat .rl { font-size: 13px; color: var(--muted); margin-right: 2px; }
   .cchip.rchip { --cat: #0d9488; padding: 5px 10px; }
+  .cchip.addcat { border-style: dashed; padding: 5px 11px; color: var(--muted); }
   .cchip {
     flex: none;
     display: inline-flex;
@@ -704,7 +705,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v51</div>
+        <div class="version">v52</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -817,7 +818,7 @@
       <button id="syncOff" hidden>Sign out</button>
     </div>
     <div class="backuprow" id="catSettings">
-      <span>Categories · tap to rename or share</span>
+      <span>Categories · tap to rename, share or delete</span>
       <div id="catRow"></div>
     </div>
     <div class="backuprow">
@@ -856,12 +857,13 @@
   ];
   let cats;
   try { cats = JSON.parse(localStorage.getItem(CAT_KEY) || 'null'); } catch (e) { cats = null; }
-  if (!Array.isArray(cats) || !cats.length) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
+  if (!Array.isArray(cats)) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
   const saveCats = () => localStorage.setItem(CAT_KEY, JSON.stringify(cats));
   const catOf = it => (it && it.cat) ? cats.find(c => c.id === it.cat) || null : null;
   // shared categories (v47): a category can be linked to a "circle" on the server; everyone who
   // joined the circle by its code sees the thoughts in it and can tick them off
-  const CAT_COLORS = ['#e05a8a', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2'];
+  const CAT_COLORS = ['#e05a8a', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#dc2626', '#65a30d', '#c026d3', '#475569'];
+  const MAX_CATS = 10;
   const isShared = c => !!(c && c.circle);
   const catForCircle = cid => cid ? cats.find(c => c.circle && c.circle.id === cid) || null : null;
   const NAME_KEY = 'braindump.myName';
@@ -1432,14 +1434,46 @@
   }
   // archive footer: the colours, tap a chip to rename it
   function renderCatSettings() {
-    catChips($('catRow'), null, c => openCatMenu(c));
+    const row = $('catRow');
+    catChips(row, null, c => openCatMenu(c));
+    if (cats.length < MAX_CATS) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'cchip addcat'; b.id = 'addCatBtn'; b.textContent = '＋ New';
+      b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); addCat(); });
+      row.appendChild(b);
+    }
+  }
+  function addCat() {
+    showModal('New category.', 'A short name, e.g. Health or House.', 'Add', res => {
+      const name = (res.reason || '').trim().slice(0, 20);
+      if (!name || cats.length >= MAX_CATS) return;
+      if (cats.some(c => c.name.toLowerCase() === name.toLowerCase())) { flash(name + ' already exists.'); return; }
+      const used = new Set(cats.map(c => c.color));
+      const color = CAT_COLORS.find(x => !used.has(x)) || CAT_COLORS[cats.length % CAT_COLORS.length];
+      cats.push({ id: 'c' + Date.now().toString(36), name, color });
+      saveCats(); renderCatDot(); rerender();
+      flash(name + ' added.');
+    }, { edit: '' });
   }
   function renameCat(c) {
     showModal('Rename category.', '', 'Save', res => {
       const name = (res.reason || '').trim().slice(0, 20);
       if (!name) return;
       c.name = name; saveCats(); renderCatDot(); rerender();
-    }, { edit: c.name });
+    }, { edit: c.name, alt: isShared(c) ? null : { label: '🗑 Delete category', onClick: () => deleteCat(c) } });
+  }
+  // thoughts in it stay, they just lose the colour
+  function deleteCat(c) {
+    const n = items.filter(it => it.cat === c.id && !it.deleted).length;
+    showModal(`Delete ${c.name}?`, n ? `Its ${n} thought${n === 1 ? '' : 's'} stay, just without a colour.` : 'No thoughts use it.', 'Delete', () => {
+      const now = Date.now();
+      for (const it of items) if (it.cat === c.id) { delete it.cat; it.updated_at = now; }
+      cats = cats.filter(x => x !== c);
+      if (stickyCat() === c.id) localStorage.removeItem(STICKY_KEY);
+      saveCats(); save(); renderCatDot(); rerender();
+      flash(c.name + ' deleted.');
+      if (typeof scheduleSync === 'function') scheduleSync();
+    });
   }
   function openCatMenu(c) {
     const alts = [];
