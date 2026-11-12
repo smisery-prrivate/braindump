@@ -705,7 +705,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v53</div>
+        <div class="version">v54</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -858,7 +858,14 @@
   let cats;
   try { cats = JSON.parse(localStorage.getItem(CAT_KEY) || 'null'); } catch (e) { cats = null; }
   if (!Array.isArray(cats)) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
-  const saveCats = () => localStorage.setItem(CAT_KEY, JSON.stringify(cats));
+  // v54: the list syncs as one block (table br_prefs); catsAt = when it last changed here, newest list wins
+  const CATS_AT_KEY = 'braindump.catsAt';
+  const catsAt = () => +localStorage.getItem(CATS_AT_KEY) || 0;
+  const saveCats = () => {
+    localStorage.setItem(CAT_KEY, JSON.stringify(cats));
+    localStorage.setItem(CATS_AT_KEY, String(Math.max(Date.now(), catsAt() + 1)));
+    setTimeout(() => { if (typeof scheduleSync === 'function') scheduleSync(); }, 0);
+  };
   const catOf = it => (it && it.cat) ? cats.find(c => c.id === it.cat) || null : null;
   // shared categories (v47): a category can be linked to a "circle" on the server; everyone who
   // joined the circle by its code sees the thoughts in it and can tick them off
@@ -2373,6 +2380,36 @@
     if (changed) snap[it.id] = sigOf(it);     // not a local change: no new stamp, nothing to push
     return changed;
   }
+  // the category list (names, colours) across my devices; until br_prefs exists this quietly does nothing
+  let prefsOff = false;
+  async function syncCats() {
+    if (prefsOff) return false;
+    let row = null;
+    try {
+      const r = await fetch(`${SYNC.url}/rest/v1/br_prefs?select=cats,updated_at`, { headers: restHeaders() });
+      if (r.status === 404 || r.status === 400) { prefsOff = true; return false; }
+      if (!r.ok) return false;
+      row = (await r.json())[0] || null;
+    } catch (e) { return false; }
+    const at = catsAt(), remoteAt = row ? +row.updated_at || 0 : -1;
+    if (row && Array.isArray(row.cats) && remoteAt > at) {
+      cats = row.cats.filter(c => c && c.id && c.name && c.color);
+      localStorage.setItem(CAT_KEY, JSON.stringify(cats));
+      localStorage.setItem(CATS_AT_KEY, String(remoteAt));
+      renderCatDot();
+      return true;
+    }
+    if (!row || at > remoteAt) {
+      try {
+        await fetch(`${SYNC.url}/rest/v1/br_prefs?on_conflict=user_id`, {
+          method: 'POST',
+          headers: Object.assign(restHeaders(), { Prefer: 'resolution=merge-duplicates' }),
+          body: JSON.stringify({ user_id: session.uid, cats, updated_at: at || 1 })
+        });
+      } catch (e) {}
+    }
+    return false;
+  }
   // the circles I belong to: each one gets a local category (same name, or a new colour)
   let circlesOff = false;
   async function refreshCircles() {
@@ -2429,9 +2466,10 @@
         { headers: restHeaders() });
       if (!res.ok) { setSyncState('error'); return; }
       const rows = await res.json();
+      const catsChanged = await syncCats();
       await refreshCircles();
       const m = mergeRows(rows);
-      let maxSeen = Math.max(last, m.maxSeen), changedLocal = m.changed;
+      let maxSeen = Math.max(last, m.maxSeen), changedLocal = m.changed || catsChanged;
       // push everything that changed locally since the last sync
       const pushing = [...pushIds];
       let dirty = items.filter(i => (i.updated_at || 0) > last || pushIds.has(i.id)).map(toRow);

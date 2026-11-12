@@ -1,4 +1,4 @@
-const CACHE = 'braindump-v53';
+const CACHE = 'braindump-v54';
 const ASSETS = ['.', 'index.html', 'config.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
