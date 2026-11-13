@@ -388,6 +388,12 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   const t2b = await p5.evaluate(() => +document.querySelectorAll('#takes .player')[1].querySelector('.pseek').value);
   check(pl.b2 === '❚❚' && pl.b1 === '▶' && pl.t2 > 0 && pl.t2 < 1200 && pl.rate === '0.5' && t2b > pl.t2 + 500, 'each recording plays on its own: half speed, 10 s on, the other one stays still (' + JSON.stringify(pl) + ' → ' + t2b + ')');
   await p5.click('#takes .player:nth-child(2) [data-act=play]');
+  // a finger on the slider whose release gets lost (the block is redrawn meanwhile): the bar must not freeze
+  await p5.evaluate(() => { const s = document.querySelector('#takes .player:nth-child(1) .pseek'); s.value = 250; s.dispatchEvent(new Event('input', { bubbles: true })); renderEntry(); });
+  await sleep(900); await p5.click('#takes .player:nth-child(1) [data-act=play]'); await sleep(1500);
+  const moved = await p5.evaluate(() => +document.querySelector('#takes .player:nth-child(1) .pseek').value);
+  await p5.click('#takes .player:nth-child(1) [data-act=play]');
+  check(moved > 300, 'a lost slider release no longer freezes the bar (' + moved + ' ms)');
   // a third recording discarded: the entry and its first two stay
   await p5.click('#recHere'); await p5.waitForSelector('#recBar:not([hidden])'); await sleep(1500);
   await p5.click('#recDiscard'); await p5.waitForSelector('#popup.open'); await p5.click('#popupBox button.danger'); await sleep(1500);

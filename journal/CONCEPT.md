@@ -230,6 +230,9 @@ See `README.md`.
 
 ## History
 
+- v30 (2026-11-13): the player's bar could freeze while the sound played (a touch on the slider
+  whose release was lost when the block was redrawn); the drag mark now expires by itself, and the
+  bar follows the sound every frame.
 - v29 (2026-11-09): the speech model uses several processor cores: the service worker adds the
   cross-origin isolation headers GitHub Pages cannot set (COOP same-origin, COEP credentialless),
   the first visit reloads once under the worker; the menu says how many cores it uses.

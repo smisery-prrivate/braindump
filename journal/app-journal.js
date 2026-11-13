@@ -3,7 +3,7 @@
    typed notes, search, delete with undo, sharing the text. */
 let curEntry = null, searchQ = '', pendingDel = new Set(), curFolder = '';      // curFolder: '' = all entries
 let selMode = false; const selIds = new Set();                                      // pick mode on the home list
-const player = { e: null, take: null, i: -1, urls: new Map(), audio: null, rate: 1, seeking: false, loading: false, want: false };      // urls: segment id -> blob URL
+const player = { e: null, take: null, i: -1, urls: new Map(), audio: null, rate: 1, seekingAt: 0, loading: false, want: false, raf: 0 };      // urls: segment id -> blob URL
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 // ---------- home ----------
@@ -255,8 +255,9 @@ function renderTakes() {
     if (act === 'play') togglePlay(id); else if (act === 'back') skipBy(id, -10000); else if (act === 'fwd') skipBy(id, 10000);
     else if (act === 'tx') { for (const g of e.segs) if (g.st === 'empty') g.st = 'todo'; wantTranscribe(e); } else if (b.dataset.rate) setRate(+b.dataset.rate);
   };
-  box.oninput = ev => { if (!ev.target.classList.contains('pseek')) return; player.seeking = true; ev.target.closest('.player').querySelector('.pcur').textContent = fmtDur(+ev.target.value); };
-  box.onchange = ev => { if (!ev.target.classList.contains('pseek')) return; player.seeking = false; seekTo(ev.target.closest('.player').dataset.take, +ev.target.value); };
+  box.oninput = ev => { if (!ev.target.classList.contains('pseek')) return; player.seekingAt = Date.now(); ev.target.closest('.player').querySelector('.pcur').textContent = fmtDur(+ev.target.value); };
+  box.onchange = ev => { if (!ev.target.classList.contains('pseek')) return; player.seekingAt = 0; seekTo(ev.target.closest('.player').dataset.take, +ev.target.value); };
+  player.seekingAt = 0;                                                     // a redraw ends any drag
   renderTxState(); syncPlayerUi();
 }
 function renderEntry() {
@@ -462,7 +463,7 @@ function ensureAudio() {
     if (player.i + 1 < t.segs.length) { if (await loadSeg(e, t, player.i + 1, 0)) a.play().catch(() => {}); }
     else { player.want = false; syncPlayerUi(); }
   });
-  a.addEventListener('play', syncPlayerUi);
+  a.addEventListener('play', () => { syncPlayerUi(); followBar(); });
   a.addEventListener('pause', () => { if (!player.want) syncPlayerUi(); });
   a.addEventListener('error', () => pState('This part could not be played.'));
   player.audio = a; return a;
@@ -491,9 +492,14 @@ async function seekTo(id, ms) {
   if (!(await loadSeg(e, t, i, ms - segOff(t, i)))) return;
   if (wasPlaying || player.want) player.audio.play().catch(() => {});
 }
+function followBar() {
+  cancelAnimationFrame(player.raf);
+  const step = () => { if (!player.audio || player.audio.paused) { player.raf = 0; return; } updateSeek(); player.raf = requestAnimationFrame(step); };
+  player.raf = requestAnimationFrame(step);
+}
 function setRate(r) { player.rate = r; if (player.audio) player.audio.playbackRate = r; syncPlayerUi(); }
 function updateSeek() {
-  const e = player.e, a = player.audio; if (!e || !a || player.seeking || curEntry !== e) return;
+  const e = player.e, a = player.audio; if (!e || !a || curEntry !== e || Date.now() - (player.seekingAt || 0) < 800) return;      // a finger on the slider: it is not moved under it
   const t = takeOf(e, player.take), blk = blockOf(player.take); if (!t || !blk || player.i < 0) return;
   const ms = segOff(t, player.i) + a.currentTime * 1000;
   blk.querySelector('.pseek').value = Math.round(ms); blk.querySelector('.pcur').textContent = fmtDur(ms);
@@ -508,6 +514,7 @@ function syncPlayerUi() {
   updateSeek();
 }
 function stopPlayer() {
+  cancelAnimationFrame(player.raf); player.raf = 0;
   if (player.audio) { try { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); } catch (e) {} }
   for (const u of player.urls.values()) URL.revokeObjectURL(u);
   player.urls.clear(); player.e = null; player.take = null; player.i = -1; player.want = false; player.audio = null;
