@@ -705,7 +705,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v54</div>
+        <div class="version">v55</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -973,6 +973,9 @@
         it.created = now;
         changed = true;
       }
+      // v55: back in the archive = a fresh start, it may go into the overflow again
+      // (before, running out of time kept the overflow life spent)
+      if (it.guestUsed && !it.guest) { it.guestUsed = false; changed = true; }
       if (it.repeat) {
         const due = repeatDue(it.repeat, now);
         if ((it.cycle || 0) < due) {
@@ -1608,14 +1611,8 @@
     tryGuest(it, el);
   }
 
-  // a thought gets exactly one guest life — afterwards: into the five, or dump it anew
+  // any thought in the archive may take an overflow spot (v55: no more one-life rule)
   function tryGuest(it, el) {
-    if (it.guestUsed) {
-      showModal('Five is five.',
-        'This thought already had its overflow spot. Now it either joins the five (remove one first) or gets dumped again.',
-        'Got it', null);
-      return;
-    }
     const g = guests().length;
     if (g >= MAX_GUESTS) {
       showModal('All full.',
@@ -1977,10 +1974,6 @@
       save(); rerender();
     } else if (zone === 'overflow') {
       if (isGuest(it)) return;
-      if (it.guestUsed) {
-        showModal('One overflow life.', 'This thought already had its overflow spot. Into the five — or dump it again.', 'Got it', null);
-        return;
-      }
       if (guests().length >= MAX_GUESTS) {
         showModal('All full.', 'Knock something off the list before clogging your mental load.', 'Got it', null);
         return;
