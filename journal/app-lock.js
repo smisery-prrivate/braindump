@@ -153,7 +153,8 @@ function renderTxBox() {
   if (eng === 'whisper') engBox = whisperOk()
     ? '<div class="hint">Your recordings are written as text on this phone. Nothing leaves it. The first time, the speech model is downloaded once and kept; after that it works offline. The text takes about as long as the recording, longer on older phones.</div>' +
       '<div class="rowopt"><span>Speech model</span><select id="setWModel">' + Object.keys(WHISPER_MODELS).map(k => '<option value="' + k + '">' + esc(WHISPER_MODELS[k].label) + '</option>').join('') + '</select></div>' +
-      '<div class="hint" id="wState"></div><button class="btn" id="wFetch">Download the speech model now</button>'
+      '<div class="hint" id="wState"></div><button class="btn" id="wFetch">Download the speech model now</button>' +
+      '<button class="btn" id="wTest">Test the speech model on the newest recording</button><button class="btn quiet" id="wLogBtn">Show details (to copy and send)</button>'
     : '<div class="hint">This browser cannot run the speech model. Use a recent Chrome, or choose "Own key".</div>';
   else if (eng === 'keyboard') engBox = '<div class="hint">The microphone opens the text window with the keyboard up; tap the keyboard\'s own microphone key and talk. No recording is kept.</div>';
   else if (eng === 'claude') engBox = '<div class="hint">The microphone opens a new chat in the Claude app, where you talk. Paste the result into an entry with the pen. No recording is kept.</div>';
@@ -171,6 +172,8 @@ function renderTxBox() {
   if ($('setLang')) { $('setLang').value = settings.lang; $('setLang').addEventListener('change', e => { settings.lang = e.target.value; saveSettings(); }); }
   if ($('setWModel')) { $('setWModel').value = settings.whisperModel; $('setWModel').addEventListener('change', ev => { settings.whisperModel = ev.target.value; saveSettings(); abortTranscribe(); whisperStop('model changed'); renderWhisperState(); scheduleTranscribe(); }); }
   if ($('wFetch')) $('wFetch').addEventListener('click', () => { whisperPrefetch(); renderWhisperState(); });
+  if ($('wTest')) $('wTest').addEventListener('click', () => { whisperSelfTest(); toast('Test started: open "Show details" in a moment.'); });
+  if ($('wLogBtn')) $('wLogBtn').addEventListener('click', showWhisperLog);
   renderWhisperState();
   if ($('sttSave')) $('sttSave').addEventListener('click', async () => {
     const key = $('sttKey').value.trim(), provider = $('sttProv').value, hint = $('sttHint');
@@ -179,6 +182,16 @@ function renderTxBox() {
   });
   if ($('sttOff')) $('sttOff').addEventListener('click', () => popup('Remove the key?', 'Transcription with it stops until a key is entered again.', [
     { label: 'Remove', cls: 'danger', fn: async () => { abortTranscribe(); await saveStt(null); renderTxBox(); renderSyncLine(); } }, { label: 'Keep it', cls: 'quiet' }]));
+}
+// the log of the speech model's steps, to copy into a message (it holds no recording, at most the
+// first 40 characters of a transcript)
+function showWhisperLog() {
+  const text = 'Journal ' + VERSION + ' · speech model log\n' + (wLog.length ? wLog.join('\n') : '(nothing yet: make a recording, or tap "Test the speech model")');
+  popup('Speech model: details', '', [
+    { label: 'Copy', cls: 'primary', fn: () => copyText(text) },
+    { label: 'Close', cls: 'quiet' }]);
+  const box = $('popupBox'), pre = document.createElement('pre'); pre.className = 'wlog'; pre.textContent = text;
+  box.insertBefore(pre, box.querySelector('button'));
 }
 // where the speech model stands on this phone
 function renderWhisperState() {

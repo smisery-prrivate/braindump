@@ -188,6 +188,7 @@ async function transcribeNow() {
       const job = nextTxJob(); if (!job) break;
       const { e, g } = job;
       g.st = 'busy'; delete g.err; if (curEntry === e) renderTxState(); renderHome();
+      if (settings.engine === 'whisper' && typeof wNote === 'function') wNote('[app] part ' + (g.i + 1) + ' of an entry from ' + fmtDay(e.created) + ' (' + fmtDur(g.dur) + ') goes to Whisper');
       try {
         if (settings.engine === 'cloud' && !(await ensureSession())) throw new Error('Not signed in.');
         const blob = await (typeof segBlob === 'function' ? segBlob(e, g) : segGet(g.id, g.mime));
@@ -205,7 +206,7 @@ async function transcribeNow() {
           if (txCtl.signal.aborted) g.st = 'todo';
           else {
             const f = txFail.get(g.id) || { n: 0 }; f.n++; f.until = Date.now() + Math.min(3600000, 60000 * Math.pow(4, f.n - 1)); txFail.set(g.id, f);
-            g.st = 'fail'; g.err = errText(err);
+            g.st = 'fail'; g.err = errText(err); if (typeof wNote === 'function') wNote('[app] part failed: ' + g.err);
           }
         }
       }

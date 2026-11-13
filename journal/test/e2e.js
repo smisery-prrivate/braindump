@@ -432,13 +432,30 @@ const fetchJson = async (u, opt) => (await fetch(u, opt)).json();
   const pI = await ctxI.newPage(); pI.on('pageerror', e => errors.push('pI pageerror: ' + e.message));
   await pI.goto(BASE); await pI.waitForFunction(() => window.journalDebug && journalDebug.entries);
   await pI.waitForFunction(() => navigator.serviceWorker && navigator.serviceWorker.controller, null, { timeout: 15000 }).catch(() => {});
-  const iso0 = await pI.evaluate(() => self.crossOriginIsolated);
-  await pI.waitForFunction(() => self.crossOriginIsolated, null, { timeout: 15000 }).catch(() => {});      // the app reloads itself once at a quiet moment
-  if (!(await pI.evaluate(() => self.crossOriginIsolated))) { await pI.reload(); await pI.waitForFunction(() => window.journalDebug && journalDebug.entries); }
+  // the app reloads itself once at a quiet moment: asked across that reload until the page is isolated
+  let iso0 = false; for (let i = 0; i < 40; i++) { try { iso0 = await pI.evaluate(() => self.crossOriginIsolated && !!window.journalDebug && !!journalDebug.entries); if (iso0) break; } catch (e) {} await sleep(500); }
+  if (!iso0) { await pI.reload(); await pI.waitForFunction(() => window.journalDebug && journalDebug.entries); }
+  await sleep(500);
   const iso = await pI.evaluate(async () => ({ iso: self.crossOriginIsolated, sab: typeof SharedArrayBuffer === 'function', cores: whisperCores(), hf: await fetch('https://huggingface.co/x/config.json').then(r => r.ok).catch(() => false), menu: (document.getElementById('menuBtn') && (openSheet(), document.getElementById('wState').textContent)) }));
   console.log('isolation', JSON.stringify({ before: iso0, ...iso }));
   check(iso.iso && iso.sab && iso.cores >= 1 && iso.hf && /processor core/.test(iso.menu), 'under the service worker the page is isolated, cores known in the menu, the model\'s weights still fetchable');
   await pI.evaluate(() => back());
+
+  // 10c. the log: the real library under isolation, stand-in model files; the details show every step
+  // up to the failure, ready to copy
+  await ctxI.route(/huggingface\.co|\.hf\.co/, route => {
+    const u = route.request().url(), head = { 'access-control-allow-origin': '*' };
+    if (/\/config\.json$/.test(u)) return route.fulfill({ status: 200, contentType: 'application/json', headers: head, body: JSON.stringify({ model_type: 'whisper', architectures: ['WhisperForConditionalGeneration'], d_model: 512, encoder_layers: 6, decoder_layers: 6, num_mel_bins: 80, vocab_size: 51865 }) });
+    if (u.endsWith('.json')) return route.fulfill({ status: 200, contentType: 'application/json', headers: head, body: '{}' });
+    return route.fulfill({ status: 200, contentType: 'application/octet-stream', headers: head, body: Buffer.from('not an onnx model') });
+  });
+  await pI.click('#noteBtn'); await pI.waitForSelector('#recHere'); await pI.click('#recHere'); await pI.waitForSelector('#recBar:not([hidden])'); await sleep(2500); await pI.click('#recHere');
+  await pI.waitForFunction(() => { const e = journalDebug.entries.find(x => !x.deleted); return e && e.segs.some(g => g.st === 'fail'); }, null, { timeout: 40000 }).catch(() => {});
+  await pI.click('#entryBack'); await pI.waitForSelector('#home:not([hidden])'); await pI.click('#menuBtn'); await pI.waitForSelector('#wLogBtn'); await pI.click('#wLogBtn'); await pI.waitForSelector('pre.wlog');
+  const wl = await pI.textContent('pre.wlog');
+  console.log('log\n' + wl.split('\n').slice(0, 14).join('\n'));
+  check(/isolated true · threads [2-9]/.test(wl) && /recording decoded in \d+ ms: audio\/webm/.test(wl) && /loudest \d\.\d+/.test(wl) && /loading Xenova\/whisper-base from the network/.test(wl) && /FAILED/.test(wl) && /part failed:/.test(wl), 'the details log every step on the phone, from the worker start to the failure');
+  await pI.click('#popupBox button.quiet');
 
   // 11. the real library and runtime against a stand-in for Hugging Face: the right model files are
   // asked for, the runtime (WebAssembly) loads from the app's own folder and the page's rules allow it

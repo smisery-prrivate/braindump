@@ -230,6 +230,9 @@ See `README.md`.
 
 ## History
 
+- v31 (2026-11-13): a log of the speech model's steps on this phone (worker start, cores,
+  cache or download, each file, model ready, decoding with loudness, language, time to write,
+  errors), with "Test the speech model on the newest recording" and "Show details" to copy and send.
 - v30 (2026-11-13): the player's bar could freeze while the sound played (a touch on the slider
   whose release was lost when the block was redrawn); the drag mark now expires by itself, and the
   bar follows the sound every frame.
