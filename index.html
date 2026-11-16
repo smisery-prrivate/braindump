@@ -396,6 +396,20 @@
   }
   .guesthead h2 { font-size: 13px; font-weight: 700; color: #b45309; text-transform: uppercase; letter-spacing: 0.06em; }
   .guesthead span { font-size: 12px; color: var(--muted); }
+  /* v56: repeating thoughts that are due sit here by themselves, outside the five */
+  .card.recur {
+    background: #f0fdfa;
+    border: 1.5px solid #99f6e4;
+    color: #115e59;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card.recur .txt { flex: 1; }
+  .card.recur .left { flex: none; font-size: 11px; color: #0f766e; white-space: nowrap; }
+  .recurhead { margin: 18px 4px 10px; display: flex; align-items: baseline; justify-content: space-between; }
+  .recurhead h2 { font-size: 13px; font-weight: 700; color: #0f766e; text-transform: uppercase; letter-spacing: 0.06em; }
+  .recurhead span { font-size: 12px; color: var(--muted); }
   .compasshead {
     margin: 2px 4px 8px;
     display: flex;
@@ -705,7 +719,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v55</div>
+        <div class="version">v56</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -728,6 +742,12 @@
       <span>expire on their own</span>
     </div>
     <div id="guestList"></div>
+
+    <div class="recurhead" id="recurHead" hidden>
+      <h2>🔁 Recurring</h2>
+      <span>come back by themselves</span>
+    </div>
+    <div id="recurList"></div>
 
     <div class="dock">
       <div id="quickRow" hidden>
@@ -1204,6 +1224,27 @@
       glist.appendChild(el);
     }
     $('guestHead').hidden = gs.length === 0;
+
+    // repeating thoughts that are due and not ticked off yet; not in the five or overflow, no counting
+    const rs = items.filter(it => it.repeat && !it.deleted && !it.vault && !it.priority && !isGuest(it) && !it.compass)
+      .sort((a, b) => b.created - a.created);
+    const rlist = $('recurList');
+    rlist.innerHTML = '';
+    for (const it of rs) {
+      const el = document.createElement('div');
+      el.className = 'card recur';
+      paintCat(el, catOf(it), it);
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      txt.textContent = it.text;
+      const left = document.createElement('div');
+      left.className = 'left';
+      left.textContent = '🔁 ' + repeatLabel(it.repeat);
+      el.append(txt, left, doneBtn(it)); placeWho(el);
+      attachLongPress(el, it);
+      rlist.appendChild(el);
+    }
+    $('recurHead').hidden = rs.length === 0;
   }
 
   const input = $('dumpInput');
@@ -1707,13 +1748,13 @@
             const next = repeatFromDays(days.includes(k) ? days.filter(x => x !== k) : days.concat(k));
             if (next !== (it.repeat || null)) setRepeat(it, next);
             save(); rerender(); paint();
-            flash(next ? 'Repeats ' + repeatLabel(next) + '. It comes back into the archive.' : 'Repeat off.');
+            flash(next ? 'Repeats ' + repeatLabel(next) + '. It shows up under Recurring.' : 'Repeat off.');
             return;
           }
           setRepeat(it, r);
           $('modal').hidden = true;
           save(); rerender();
-          flash(r ? 'Repeats ' + repeatLabel(r) + '. It comes back into the archive.' : 'Repeat off.');
+          flash(r ? 'Repeats ' + repeatLabel(r) + '. It shows up under Recurring.' : 'Repeat off.');
         });
         mr.appendChild(b);
       }
