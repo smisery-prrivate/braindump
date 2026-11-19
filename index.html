@@ -719,7 +719,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v56</div>
+        <div class="version">v57</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -836,6 +836,10 @@
       <button id="syncSend">🔄 Enable sync</button>
       <button id="syncWatch" hidden>⌚ Pair a watch</button>
       <button id="syncOff" hidden>Sign out</button>
+    </div>
+    <div class="backuprow" id="nightlyRow">
+      <span>Every night at 4 am your five and overflow go back here, to pick fresh in the morning. Compass stays.</span>
+      <button id="nightlyBtn"></button>
     </div>
     <div class="backuprow" id="catSettings">
       <span>Categories · tap to rename, share or delete</span>
@@ -982,6 +986,14 @@
   // Guest status pauses deletion but never resets the clock.
   // Expiry marks a tombstone (deleted: true) so other devices learn about it;
   // tombstones themselves are purged after 60 days.
+  const NIGHTLY_KEY = 'braindump.nightlyReset';   // '0' = off; default on
+  const nightlyOn = () => { try { return localStorage.getItem(NIGHTLY_KEY) !== '0'; } catch (e) { return true; } };
+  // the day ends at 4 am, so a late evening still counts as today
+  function dayBoundary(now) {
+    const d = new Date(now); d.setHours(4, 0, 0, 0);
+    if (d.getTime() > now) d.setDate(d.getDate() - 1);
+    return d.getTime();
+  }
   function purgeReal() {
     const now = Date.now();
     let changed = false;
@@ -996,6 +1008,20 @@
       // v55: back in the archive = a fresh start, it may go into the overflow again
       // (before, running out of time kept the overflow life spent)
       if (it.guestUsed && !it.guest) { it.guestUsed = false; changed = true; }
+      // v57 nightly reset: the five and the overflow go back to the archive at 4 am to be picked fresh.
+      // Only what was last touched before the boundary, and with the boundary as the stamp, so a pick
+      // made today on another device always wins over this reset.
+      if (nightlyOn() && !it.deleted && !it.vault && !it.compass && (it.priority || it.guest)) {
+        const b = dayBoundary(now);
+        if ((it.updated_at || it.created || 0) < b) {
+          it.priority = null; it.guest = null; it.guestUsed = false;
+          it.created = b;
+          it.updated_at = b + 1;
+          snap[it.id] = sigOf(it);
+          pushIds.add(it.id); savePushIds();
+          changed = true;
+        }
+      }
       if (it.repeat) {
         const due = repeatDue(it.repeat, now);
         if ((it.cycle || 0) < due) {
@@ -2585,6 +2611,13 @@
   });
   // a watch (or any second device) signs in with this code instead of an email link; it then
   // writes and reads this account's thoughts. The code lives ten minutes and works once.
+  const paintNightly = () => { $('nightlyBtn').textContent = nightlyOn() ? '🌙 Nightly reset: on' : '🌙 Nightly reset: off'; };
+  paintNightly();
+  $('nightlyBtn').addEventListener('click', () => {
+    try { localStorage.setItem(NIGHTLY_KEY, nightlyOn() ? '0' : '1'); } catch (e) {}
+    paintNightly();
+    flash(nightlyOn() ? 'Each night your picks go back to the archive.' : 'Your picks stay until you move them.');
+  });
   $('syncWatch').addEventListener('click', async () => {
     if (!(await ensureSession())) { flash('Offline. Try again later.'); return; }
     try {
