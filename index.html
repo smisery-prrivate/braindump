@@ -719,7 +719,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v57</div>
+        <div class="version">v58</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1008,6 +1008,8 @@
       // v55: back in the archive = a fresh start, it may go into the overflow again
       // (before, running out of time kept the overflow life spent)
       if (it.guestUsed && !it.guest) { it.guestUsed = false; changed = true; }
+      // v58: repeating thoughts in the overflow move to Recurring
+      if (it.repeat && it.guest && !it.deleted) { it.guest = null; it.guestUsed = false; changed = true; }
       // v57 nightly reset: the five and the overflow go back to the archive at 4 am to be picked fresh.
       // Only what was last touched before the boundary, and with the boundary as the stamp, so a pick
       // made today on another device always wins over this reset.
@@ -1678,8 +1680,17 @@
     tryGuest(it, el);
   }
 
+  function toRecurring(it) {
+    it.priority = null; it.guest = null; it.guestUsed = false; it.compass = false; delete it.compassPrev;
+    it.deleted = false; delete it.deletedBy; it.vault = false;
+    save(); rerender();
+    if ($('archiveScreen').classList.contains('active')) renderArchive();
+    flash('Repeating thoughts live in Recurring.');
+  }
   // any thought in the archive may take an overflow spot (v55: no more one-life rule)
   function tryGuest(it, el) {
+    // v58: a repeating thought never sits in the overflow, it belongs in Recurring
+    if (it.repeat) { toRecurring(it); return; }
     const g = guests().length;
     if (g >= MAX_GUESTS) {
       showModal('All full.',
@@ -2041,6 +2052,7 @@
       save(); rerender();
     } else if (zone === 'overflow') {
       if (isGuest(it)) return;
+      if (it.repeat) { toRecurring(it); return; }
       if (guests().length >= MAX_GUESTS) {
         showModal('All full.', 'Knock something off the list before clogging your mental load.', 'Got it', null);
         return;
