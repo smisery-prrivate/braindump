@@ -719,7 +719,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v58</div>
+        <div class="version">v59</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -745,7 +745,7 @@
 
     <div class="recurhead" id="recurHead" hidden>
       <h2>🔁 Recurring</h2>
-      <span>come back by themselves</span>
+      <span id="recurSub">come back by themselves</span>
     </div>
     <div id="recurList"></div>
 
@@ -867,6 +867,7 @@
   const EXPIRE_DAYS = 30;
   const FADE_START_DAYS = 20;
   const MAX_MARKS = 5;
+  const MAX_RECUR = 5;   // v59: Recurring shows five at a time, the rest wait their turn
   const GUEST_MS = 30 * 3600000;   // overflow slots expire after 30 hours
   const MAX_GUESTS = 5;
   const PASSWORD = '1234';
@@ -1255,10 +1256,11 @@
 
     // repeating thoughts that are due and not ticked off yet; not in the five or overflow, no counting
     const rs = items.filter(it => it.repeat && !it.deleted && !it.vault && !it.priority && !isGuest(it) && !it.compass)
-      .sort((a, b) => b.created - a.created);
+      .sort((a, b) => a.created - b.created);   // v59: oldest first, so nothing waits forever
+    const shown = rs.slice(0, MAX_RECUR);
     const rlist = $('recurList');
     rlist.innerHTML = '';
-    for (const it of rs) {
+    for (const it of shown) {
       const el = document.createElement('div');
       el.className = 'card recur';
       paintCat(el, catOf(it), it);
@@ -1273,6 +1275,8 @@
       rlist.appendChild(el);
     }
     $('recurHead').hidden = rs.length === 0;
+    const wait = rs.length - shown.length;
+    $('recurSub').textContent = wait > 0 ? '+' + wait + ' waiting, tick one off' : 'come back by themselves';
   }
 
   const input = $('dumpInput');
