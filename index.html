@@ -608,6 +608,8 @@
   .arch.dark .age { color: #94a3b8; }
   .arch.guest { background: #fffbeb; border: 1.5px dashed #f5c56b; color: #92400e; }
   .arch.guest .age { color: #b45309; }
+  .arch.recur { background: #f0fdfa; border-color: #99f6e4; color: #115e59; }
+  .arch.recur .age { color: #0f766e; }
   .arch.blocked { animation: shake .4s; }
   @keyframes shake {
     0%,100% { transform: translateX(0); }
@@ -719,7 +721,7 @@
     <header>
       <div>
         <h1>Brain Relieve</h1>
-        <div class="version">v59</div>
+        <div class="version">v60</div>
       </div>
       <button id="openArchiveBtn">🔒 <span id="count">Archive</span></button>
     </header>
@@ -1191,6 +1193,9 @@
   }
 
   // ---------- main screen ----------
+  // due repeating thoughts, oldest first (v59: so nothing waits forever); the first MAX_RECUR show in Recurring
+  const recurDue = () => items.filter(it => it.repeat && !it.deleted && !it.vault && !it.priority && !isGuest(it) && !it.compass)
+    .sort((a, b) => a.created - b.created);
   function renderMain() {
     if (items.some(i => !i.deleted) && !$('intro').hidden) $('intro').hidden = true;
     $('count').textContent = alive().length ? `${alive().length} in archive` : 'Archive';
@@ -1255,9 +1260,7 @@
     $('guestHead').hidden = gs.length === 0;
 
     // repeating thoughts that are due and not ticked off yet; not in the five or overflow, no counting
-    const rs = items.filter(it => it.repeat && !it.deleted && !it.vault && !it.priority && !isGuest(it) && !it.compass)
-      .sort((a, b) => a.created - b.created);   // v59: oldest first, so nothing waits forever
-    const shown = rs.slice(0, MAX_RECUR);
+    const rs = recurDue(), shown = rs.slice(0, MAX_RECUR);
     const rlist = $('recurList');
     rlist.innerHTML = '';
     for (const it of shown) {
@@ -1471,6 +1474,7 @@
   // ---------- archive ----------
   function renderArchive() {
     const list = $('archList');
+    const recurOn = new Set(recurDue().slice(0, MAX_RECUR).map(it => it.id));   // v60: on the main screen today
     list.innerHTML = '';
     const visible = items.filter(it => !it.deleted && !it.vault && !expired(it));
     // grouped by colour so you prioritise inside a category; no colours used = plain list
@@ -1493,7 +1497,7 @@
         list.appendChild(h);
       }
       const el = document.createElement('div');
-      el.className = 'arch' + (it.compass ? ' compass' : (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : '')));
+      el.className = 'arch' + (it.compass ? ' compass' : (it.priority ? ' ' + it.priority : (isGuest(it) ? ' guest' : (recurOn.has(it.id) ? ' recur' : ''))));
       paintCat(el, catOf(it), it);
       el.style.opacity = isGuest(it) ? guestOpacity(it) : fadeOpacity(it);
       el.dataset.id = it.id;
